@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}Activities{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Activities</h1>
+    <span class="text-muted">{{ activities|length }} activit{{ 'ies' if activities|length != 1 else 'y' }}</span>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-primary" onclick="openModal('activity-modal')">+ Add Activity</button>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+  <form method="get" class="filter-form">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search subject…" class="input" />
+    <select name="type" class="input select-sm">
+      <option value="">All Types</option>
+      {% for t in ['call','email','meeting','task','note'] %}
+        <option value="{{ t }}" {% if type_filter == t %}selected{% endif %}>{{ t|title }}</option>
+      {% endfor %}
+    </select>
+    <select name="done" class="input select-sm">
+      <option value="">All</option>
+      <option value="0" {% if done_filter == '0' %}selected{% endif %}>Pending</option>
+      <option value="1" {% if done_filter == '1' %}selected{% endif %}>Completed</option>
+    </select>
+    <button type="submit" class="btn btn-secondary">Filter</button>
+    {% if q or type_filter or done_filter %}<a href="/activities" class="btn btn-ghost">Clear</a>{% endif %}
+  </form>
+</div>
+
+<!-- Type summary pills -->
+<div class="type-summary">
+  {% set type_counts = {} %}
+  {% for a in activities %}
+    {% if a.type in type_counts %}
+      {% set _ = type_counts.update({a.type: type_counts[a.type] + 1}) %}
+    {% else %}
+      {% set _ = type_counts.update({a.type: 1}) %}
+    {% endif %}
+  {% endfor %}
+  {% for t in ['call','email','meeting','task','note'] %}
+    <a href="?type={{ t }}" class="type-pill type-pill--{{ t }} {% if type_filter == t %}active{% endif %}">
+      {{ t|title }}
+    </a>
+  {% endfor %}
+</div>
+
+{% if activities %}
+<div class="card">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Subject</th>
+          <th>Contact</th>
+          <th>Deal</th>
+          <th>Due</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in activities %}
+        <tr id="act-{{ a.id }}" class="{% if a.completed %}row-done{% endif %}">
+          <td><span class="activity-type-badge type--{{ a.type }}">{{ a.type|title }}</span></td>
+          <td>
+            <div class="fw-medium">{{ a.subject }}</div>
+            {% if a.description %}<div class="text-xs text-muted">{{ a.description[:80] }}{% if a.description|length > 80 %}…{% endif %}</div>{% endif %}
+          </td>
+          <td>
+            {% if a.contact %}
+              <a href="/contacts/{{ a.contact.id }}">{{ a.contact.full_name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted">{{ a.deal.title if a.deal else '—' }}</td>
+          <td class="text-sm {% if not a.completed and a.due_date and a.due_date.timestamp() < now_ts %}text-danger{% endif %}">
+            {{ a.due_date.strftime('%b %d, %H:%M') if a.due_date else '—' }}
+          </td>
+          <td>
+            {% if a.completed %}
+              <span class="badge badge-success">Done</span>
+            {% else %}
+              <span class="badge badge-pending">Pending</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-xs btn-ghost" onclick="completeActivity({{ a.id }}, this)" title="Toggle complete">
+                {% if a.completed %}↩{% else %}✓{% endif %}
+              </button>
+              <button class="btn btn-xs btn-ghost" onclick='editActivity({{ a.to_dict()|tojson }})' title="Edit">✎</button>
+              <button class="btn btn-xs btn-danger-ghost" onclick="deleteActivity({{ a.id }})" title="Delete">✕</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#f1f5f9"/><rect x="14" y="12" width="20" height="24" rx="2" stroke="#94a3b8" stroke-width="2"/><path d="M18 18h12M18 22h12M18 26h8" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/></svg>
+  <h3>No activities found</h3>
+  <p>Log calls, emails, meetings, and tasks here.</p>
+  <button class="btn btn-primary" onclick="openModal('activity-modal')">Add Activity</button>
+</div>
+{% endif %}
+
+<!-- Add/Edit Activity Modal -->
+<div class="modal-overlay" id="activity-modal" onclick="closeModal('activity-modal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="activity-modal-title">Add Activity</h3>
+      <button class="modal-close" onclick="closeModal('activity-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="saveActivity(event)">
+        <input type="hidden" id="activity-id" />
+        <div class="form-group">
+          <label>Type *</label>
+          <div class="type-radio-group">
+            {% for t in ['call','email','meeting','task','note'] %}
+            <label class="type-radio">
+              <input type="radio" name="af-type" value="{{ t }}" {% if t == 'call' %}checked{% endif %} />
+              <span class="type-radio-label type--{{ t }}">{{ t|title }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Subject *</label>
+          <input type="text" id="af-subject" class="input" required />
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Contact</label>
+            <select id="af-contact_id" class="input">
+              <option value="">— None —</option>
+              {% for c in contacts %}
+                <option value="{{ c.id }}">{{ c.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Deal</label>
+            <select id="af-deal_id" class="input">
+              <option value="">— None —</option>
+              {% for d in deals %}
+                <option value="{{ d.id }}">{{ d.title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Due Date & Time</label>
+          <input type="datetime-local" id="af-due_date" class="input" />
+        </div>
+        <div class="form-group">
+          <label>Description / Notes</label>
+          <textarea id="af-description" class="input" rows="3"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('activity-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Activity</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('add') === '1') openModal('activity-modal');
+const now_ts = Date.now() / 1000;
+
+function editActivity(a) {
+  document.getElementById('activity-modal-title').textContent = 'Edit Activity';
+  document.getElementById('activity-id').value = a.id;
+  document.querySelector(`input[name="af-type"][value="${a.type}"]`).checked = true;
+  document.getElementById('af-subject').value = a.subject || '';
+  document.getElementById('af-contact_id').value = a.contact_id || '';
+  document.getElementById('af-deal_id').value = a.deal_id || '';
+  document.getElementById('af-due_date').value = a.due_date || '';
+  document.getElementById('af-description').value = a.description || '';
+  openModal('activity-modal');
+}
+
+async function saveActivity(e) {
+  e.preventDefault();
+  const id = document.getElementById('activity-id').value;
+  const data = {
+    type: document.querySelector('input[name="af-type"]:checked').value,
+    subject: document.getElementById('af-subject').value,
+    contact_id: document.getElementById('af-contact_id').value || null,
+    deal_id: document.getElementById('af-deal_id').value || null,
+    due_date: document.getElementById('af-due_date').value || null,
+    description: document.getElementById('af-description').value
+  };
+  const url = id ? `/api/activities/${id}` : '/api/activities';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  if (res.ok) location.reload();
+  else alert('Error saving activity');
+}
+
+async function deleteActivity(id) {
+  if (!confirm('Delete this activity?')) return;
+  const res = await fetch(`/api/activities/${id}`, {method:'DELETE'});
+  if (res.ok) location.reload();
+}
+</script>
+{% endblock %}

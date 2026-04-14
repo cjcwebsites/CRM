@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <span class="text-muted">Welcome back — here's what's happening</span>
+</div>
+
+<!-- Stats Row -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--blue">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.total_contacts }}</div>
+      <div class="stat-label">Total Contacts</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--purple">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.total_companies }}</div>
+      <div class="stat-label">Companies</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--green">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">${{ "{:,.0f}".format(stats.pipeline_value) }}</div>
+      <div class="stat-label">Pipeline Value</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--yellow">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.pending_tasks }}</div>
+      <div class="stat-label">Open Tasks
+        {% if stats.overdue_tasks > 0 %}
+          <span class="badge badge-danger">{{ stats.overdue_tasks }} overdue</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pipeline Summary -->
+<div class="section-title">Sales Pipeline</div>
+<div class="pipeline-bar-wrap">
+  {% set stages = [('lead','Lead'),('qualified','Qualified'),('proposal','Proposal'),('negotiation','Negotiation'),('won','Won'),('lost','Lost')] %}
+  {% set total = stage_counts.values()|sum %}
+  <div class="pipeline-bar">
+    {% for key, label in stages %}
+      {% if stage_counts[key] > 0 %}
+        <div class="pipeline-segment segment--{{ key }}"
+             style="flex: {{ stage_counts[key] }}"
+             title="{{ label }}: {{ stage_counts[key] }}">
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <div class="pipeline-legend">
+    {% for key, label in stages %}
+      <div class="legend-item">
+        <span class="legend-dot dot--{{ key }}"></span>
+        <span>{{ label }}</span>
+        <strong>{{ stage_counts[key] }}</strong>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Two-column layout -->
+<div class="dash-grid">
+  <!-- Recent Contacts -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Recent Contacts</h3>
+      <a href="/contacts" class="link-sm">View all</a>
+    </div>
+    <div class="card-body p0">
+      {% if recent_contacts %}
+        <table class="table">
+          <thead><tr><th>Name</th><th>Company</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for c in recent_contacts %}
+            <tr>
+              <td>
+                <a href="/contacts/{{ c.id }}" class="contact-name-link">
+                  <div class="avatar avatar-xs">{{ c.first_name[0] }}{{ c.last_name[0] }}</div>
+                  {{ c.full_name }}
+                </a>
+              </td>
+              <td class="text-muted">{{ c.company.name if c.company else '—' }}</td>
+              <td><span class="badge badge--{{ c.status }}">{{ c.status|title }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state-sm">No contacts yet. <a href="/contacts">Add one</a></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recent Deals -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Recent Deals</h3>
+      <a href="/deals" class="link-sm">View all</a>
+    </div>
+    <div class="card-body p0">
+      {% if recent_deals %}
+        <table class="table">
+          <thead><tr><th>Deal</th><th>Value</th><th>Stage</th></tr></thead>
+          <tbody>
+            {% for d in recent_deals %}
+            <tr>
+              <td><a href="/deals?q={{ d.title }}" class="fw-medium">{{ d.title }}</a></td>
+              <td class="text-muted">${{ "{:,.0f}".format(d.value) }}</td>
+              <td><span class="badge badge--{{ d.stage }}">{{ d.stage|title }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty-state-sm">No deals yet. <a href="/deals">Add one</a></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Upcoming Activities -->
+<div class="card mt-4">
+  <div class="card-header">
+    <h3>Upcoming Activities</h3>
+    <a href="/activities" class="link-sm">View all</a>
+  </div>
+  <div class="card-body p0">
+    {% if upcoming_activities %}
+      <table class="table">
+        <thead><tr><th>Type</th><th>Subject</th><th>Contact</th><th>Due</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for a in upcoming_activities %}
+          <tr id="dash-activity-{{ a.id }}">
+            <td><span class="activity-type-badge type--{{ a.type }}">{{ a.type|title }}</span></td>
+            <td>{{ a.subject }}</td>
+            <td class="text-muted">{{ a.contact.full_name if a.contact else '—' }}</td>
+            <td class="text-muted {% if a.due_date and a.due_date < now|default('') %}text-danger{% endif %}">
+              {{ a.due_date.strftime('%b %d, %H:%M') if a.due_date else '—' }}
+            </td>
+            <td>
+              <button class="btn btn-xs btn-ghost" onclick="completeActivity({{ a.id }}, this)">
+                ✓ Done
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state-sm">No upcoming activities. <a href="/activities">Schedule one</a></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

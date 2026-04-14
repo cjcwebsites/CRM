@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}Deals{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Deals</h1>
+  </div>
+  <div class="page-actions">
+    <div class="view-toggle">
+      <a href="?view=kanban{% if q %}&q={{ q }}{% endif %}" class="btn btn-sm {% if view == 'kanban' %}btn-secondary{% else %}btn-ghost{% endif %}">Kanban</a>
+      <a href="?view=list{% if q %}&q={{ q }}{% endif %}" class="btn btn-sm {% if view == 'list' %}btn-secondary{% else %}btn-ghost{% endif %}">List</a>
+    </div>
+    <button class="btn btn-primary" onclick="openModal('deal-modal')">+ Add Deal</button>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+  <form method="get" class="filter-form">
+    <input type="hidden" name="view" value="{{ view }}" />
+    <input type="text" name="q" value="{{ q }}" placeholder="Search deals…" class="input" />
+    {% if view == 'list' %}
+    <select name="stage" class="input select-sm">
+      <option value="">All Stages</option>
+      {% for s in stages %}
+        <option value="{{ s }}" {% if stage_filter == s %}selected{% endif %}>{{ s|title }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button type="submit" class="btn btn-secondary">Filter</button>
+    {% if q or stage_filter %}<a href="/deals?view={{ view }}" class="btn btn-ghost">Clear</a>{% endif %}
+  </form>
+</div>
+
+{% if view == 'kanban' %}
+<!-- KANBAN VIEW -->
+<div class="kanban-board" id="kanban-board">
+  {% set stage_labels = {'lead': 'Lead', 'qualified': 'Qualified', 'proposal': 'Proposal', 'negotiation': 'Negotiation', 'won': 'Won', 'lost': 'Lost'} %}
+  {% for stage in stages %}
+  <div class="kanban-col" data-stage="{{ stage }}">
+    <div class="kanban-col-header">
+      <span class="kanban-col-title">
+        <span class="legend-dot dot--{{ stage }}"></span>
+        {{ stage_labels[stage] }}
+      </span>
+      <span class="kanban-count">{{ deals_by_stage[stage]|length }}</span>
+    </div>
+    <div class="kanban-cards" id="col-{{ stage }}" ondragover="event.preventDefault()" ondrop="onDrop(event, '{{ stage }}')">
+      {% for d in deals_by_stage[stage] %}
+      <div class="kanban-card" draggable="true" ondragstart="onDragStart(event, {{ d.id }})" id="deal-card-{{ d.id }}">
+        <div class="kanban-card-title">{{ d.title }}</div>
+        <div class="kanban-card-value">${{ "{:,.0f}".format(d.value) }}</div>
+        {% if d.contact %}<div class="kanban-card-meta">{{ d.contact.full_name }}</div>{% endif %}
+        {% if d.close_date %}<div class="kanban-card-meta text-muted">Close: {{ d.close_date.strftime('%b %d') }}</div>{% endif %}
+        <div class="kanban-card-actions">
+          <button class="btn btn-xs btn-ghost" onclick='editDeal({{ d.to_dict()|tojson }})'>✎</button>
+          <button class="btn btn-xs btn-danger-ghost" onclick="deleteDeal({{ d.id }}, '{{ d.title }}')">✕</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <button class="kanban-add-btn" onclick="openDealForStage('{{ stage }}')">+ Add deal</button>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<!-- LIST VIEW -->
+{% if deals %}
+<div class="card">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Value</th>
+          <th>Stage</th>
+          <th>Probability</th>
+          <th>Contact</th>
+          <th>Company</th>
+          <th>Close Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in deals %}
+        <tr>
+          <td class="fw-medium">{{ d.title }}</td>
+          <td>${{ "{:,.0f}".format(d.value) }}</td>
+          <td><span class="badge badge--{{ d.stage }}">{{ d.stage|title }}</span></td>
+          <td>
+            <div class="prob-bar">
+              <div class="prob-fill" style="width: {{ d.probability }}%"></div>
+              <span>{{ d.probability }}%</span>
+            </div>
+          </td>
+          <td>
+            {% if d.contact %}
+              <a href="/contacts/{{ d.contact.id }}">{{ d.contact.full_name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if d.company %}
+              <a href="/companies/{{ d.company.id }}" class="text-muted">{{ d.company.name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted">{{ d.close_date.strftime('%b %d, %Y') if d.close_date else '—' }}</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-xs btn-ghost" onclick='editDeal({{ d.to_dict()|tojson }})'>✎</button>
+              <button class="btn btn-xs btn-danger-ghost" onclick="deleteDeal({{ d.id }}, '{{ d.title }}')">✕</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#f1f5f9"/><circle cx="24" cy="24" r="10" stroke="#94a3b8" stroke-width="2"/><path d="M24 18v6l4 2" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/></svg>
+  <h3>No deals found</h3>
+  <button class="btn btn-primary" onclick="openModal('deal-modal')">Add Deal</button>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- Add/Edit Deal Modal -->
+<div class="modal-overlay" id="deal-modal" onclick="closeModal('deal-modal')">
+  <div class="modal modal-lg" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="deal-modal-title">Add Deal</h3>
+      <button class="modal-close" onclick="closeModal('deal-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="saveDeal(event)">
+        <input type="hidden" id="deal-id" />
+        <div class="form-grid">
+          <div class="form-group col-span-2">
+            <label>Deal Title *</label>
+            <input type="text" id="df-title" class="input" required />
+          </div>
+          <div class="form-group">
+            <label>Value ($)</label>
+            <input type="number" id="df-value" class="input" min="0" step="0.01" value="0" />
+          </div>
+          <div class="form-group">
+            <label>Stage</label>
+            <select id="df-stage" class="input" onchange="updateProbability(this.value)">
+              {% for s in stages %}
+                <option value="{{ s }}">{{ s|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Probability (%)</label>
+            <input type="number" id="df-probability" class="input" min="0" max="100" value="10" />
+          </div>
+          <div class="form-group">
+            <label>Close Date</label>
+            <input type="date" id="df-close_date" class="input" />
+          </div>
+          <div class="form-group">
+            <label>Contact</label>
+            <select id="df-contact_id" class="input">
+              <option value="">— None —</option>
+              {% for c in contacts %}
+                <option value="{{ c.id }}">{{ c.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Company</label>
+            <select id="df-company_id" class="input">
+              <option value="">— None —</option>
+              {% for c in companies %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Owner</label>
+            <input type="text" id="df-owner" class="input" />
+          </div>
+          <div class="form-group col-span-2">
+            <label>Description</label>
+            <textarea id="df-description" class="input" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('deal-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Deal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const STAGE_PROBABILITY = {lead:10, qualified:25, proposal:50, negotiation:75, won:100, lost:0};
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('add') === '1') {
+  openModal('deal-modal');
+  const cid = urlParams.get('contact_id');
+  if (cid) document.getElementById('df-contact_id').value = cid;
+}
+
+function updateProbability(stage) {
+  document.getElementById('df-probability').value = STAGE_PROBABILITY[stage] || 10;
+}
+
+function openDealForStage(stage) {
+  document.getElementById('deal-modal-title').textContent = 'Add Deal';
+  document.getElementById('deal-id').value = '';
+  document.getElementById('df-stage').value = stage;
+  updateProbability(stage);
+  openModal('deal-modal');
+}
+
+function editDeal(d) {
+  document.getElementById('deal-modal-title').textContent = 'Edit Deal';
+  document.getElementById('deal-id').value = d.id;
+  document.getElementById('df-title').value = d.title;
+  document.getElementById('df-value').value = d.value;
+  document.getElementById('df-stage').value = d.stage;
+  document.getElementById('df-probability').value = d.probability;
+  document.getElementById('df-close_date').value = d.close_date || '';
+  document.getElementById('df-contact_id').value = d.contact_id || '';
+  document.getElementById('df-company_id').value = d.company_id || '';
+  document.getElementById('df-owner').value = d.owner || '';
+  document.getElementById('df-description').value = d.description || '';
+  openModal('deal-modal');
+}
+
+async function saveDeal(e) {
+  e.preventDefault();
+  const id = document.getElementById('deal-id').value;
+  const data = {
+    title: document.getElementById('df-title').value,
+    value: parseFloat(document.getElementById('df-value').value) || 0,
+    stage: document.getElementById('df-stage').value,
+    probability: parseInt(document.getElementById('df-probability').value) || 0,
+    close_date: document.getElementById('df-close_date').value || null,
+    contact_id: document.getElementById('df-contact_id').value || null,
+    company_id: document.getElementById('df-company_id').value || null,
+    owner: document.getElementById('df-owner').value,
+    description: document.getElementById('df-description').value
+  };
+  const url = id ? `/api/deals/${id}` : '/api/deals';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  if (res.ok) location.reload();
+  else alert('Error saving deal');
+}
+
+async function deleteDeal(id, name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  const res = await fetch(`/api/deals/${id}`, {method:'DELETE'});
+  if (res.ok) location.reload();
+}
+
+// Drag & Drop for Kanban
+let dragId = null;
+function onDragStart(e, id) { dragId = id; e.dataTransfer.effectAllowed = 'move'; }
+async function onDrop(e, stage) {
+  e.preventDefault();
+  if (!dragId) return;
+  const res = await fetch(`/api/deals/${dragId}/stage`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({stage})
+  });
+  if (res.ok) location.reload();
+}
+</script>
+{% endblock %}

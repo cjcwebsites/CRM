@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Contacts{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Contacts</h1>
+    <span class="text-muted">{{ contacts|length }} contact{{ 's' if contacts|length != 1 }}</span>
+  </div>
+  <div class="page-actions">
+    <a href="/api/contacts/export" class="btn btn-ghost btn-sm">Export CSV</a>
+    <button class="btn btn-primary" onclick="openModal('contact-modal')">+ Add Contact</button>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+  <form method="get" class="filter-form">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search name, email, phone…" class="input" />
+    <select name="status" class="input select-sm">
+      <option value="">All Statuses</option>
+      {% for s in ['lead','prospect','customer','churned'] %}
+        <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s|title }}</option>
+      {% endfor %}
+    </select>
+    <select name="tag" class="input select-sm">
+      <option value="">All Tags</option>
+      {% for t in tags %}
+        <option value="{{ t.name }}" {% if tag_filter == t.name %}selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-secondary">Filter</button>
+    {% if q or status_filter or tag_filter %}
+      <a href="/contacts" class="btn btn-ghost">Clear</a>
+    {% endif %}
+  </form>
+</div>
+
+<!-- Contact Table -->
+{% if contacts %}
+<div class="card">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Company</th>
+          <th>Status</th>
+          <th>Tags</th>
+          <th>Added</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in contacts %}
+        <tr>
+          <td>
+            <a href="/contacts/{{ c.id }}" class="contact-name-link">
+              <div class="avatar avatar-xs">{{ c.first_name[0] }}{{ c.last_name[0] }}</div>
+              <div>
+                <div class="fw-medium">{{ c.full_name }}</div>
+                {% if c.job_title %}<div class="text-xs text-muted">{{ c.job_title }}</div>{% endif %}
+              </div>
+            </a>
+          </td>
+          <td><a href="mailto:{{ c.email }}" class="text-muted">{{ c.email or '—' }}</a></td>
+          <td class="text-muted">{{ c.phone or '—' }}</td>
+          <td>
+            {% if c.company %}
+              <a href="/companies/{{ c.company.id }}" class="text-muted">{{ c.company.name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td><span class="badge badge--{{ c.status }}">{{ c.status|title }}</span></td>
+          <td>
+            {% for t in c.tags %}
+              <span class="tag-chip" style="background: {{ t.color }}22; color: {{ t.color }}; border-color: {{ t.color }}44">{{ t.name }}</span>
+            {% endfor %}
+          </td>
+          <td class="text-muted text-sm">{{ c.created_at.strftime('%b %d, %Y') }}</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-xs btn-ghost" onclick='editContact({{ c.to_dict()|tojson }})' title="Edit">✎</button>
+              <button class="btn btn-xs btn-danger-ghost" onclick="deleteContact({{ c.id }}, '{{ c.full_name }}')" title="Delete">✕</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#f1f5f9"/><path d="M24 22a6 6 0 100-12 6 6 0 000 12zM12 38c0-6.627 5.373-12 12-12s12 5.373 12 12" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/></svg>
+  <h3>No contacts found</h3>
+  <p>{% if q or status_filter %}Try different filters or {% endif %}add your first contact.</p>
+  <button class="btn btn-primary" onclick="openModal('contact-modal')">Add Contact</button>
+</div>
+{% endif %}
+
+<!-- Add/Edit Contact Modal -->
+<div class="modal-overlay" id="contact-modal" onclick="closeModal('contact-modal')">
+  <div class="modal modal-lg" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="contact-modal-title">Add Contact</h3>
+      <button class="modal-close" onclick="closeModal('contact-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="contact-form" onsubmit="saveContact(event)">
+        <input type="hidden" id="contact-id" />
+        <div class="form-grid">
+          <div class="form-group">
+            <label>First Name *</label>
+            <input type="text" id="cf-first_name" class="input" required />
+          </div>
+          <div class="form-group">
+            <label>Last Name *</label>
+            <input type="text" id="cf-last_name" class="input" required />
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="cf-email" class="input" />
+          </div>
+          <div class="form-group">
+            <label>Phone</label>
+            <input type="tel" id="cf-phone" class="input" />
+          </div>
+          <div class="form-group">
+            <label>Mobile</label>
+            <input type="tel" id="cf-mobile" class="input" />
+          </div>
+          <div class="form-group">
+            <label>Job Title</label>
+            <input type="text" id="cf-job_title" class="input" />
+          </div>
+          <div class="form-group">
+            <label>Company</label>
+            <select id="cf-company_id" class="input">
+              <option value="">— No Company —</option>
+              {% for co in companies %}
+                <option value="{{ co.id }}">{{ co.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="cf-status" class="input">
+              <option value="lead">Lead</option>
+              <option value="prospect">Prospect</option>
+              <option value="customer">Customer</option>
+              <option value="churned">Churned</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Source</label>
+            <input type="text" id="cf-source" class="input" placeholder="e.g. Website, Referral, Cold call" />
+          </div>
+          <div class="form-group">
+            <label>LinkedIn</label>
+            <input type="url" id="cf-linkedin" class="input" />
+          </div>
+          <div class="form-group col-span-2">
+            <label>Address</label>
+            <input type="text" id="cf-address" class="input" />
+          </div>
+          <div class="form-group col-span-2">
+            <label>Notes</label>
+            <textarea id="cf-notes" class="input" rows="3"></textarea>
+          </div>
+          <div class="form-group col-span-2">
+            <label>Tags</label>
+            <div class="tag-picker" id="contact-tag-picker">
+              {% for t in tags %}
+                <label class="tag-pick-item">
+                  <input type="checkbox" value="{{ t.id }}" />
+                  <span class="tag-chip" style="background: {{ t.color }}22; color: {{ t.color }}; border-color: {{ t.color }}44">{{ t.name }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('contact-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Contact</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('add') === '1') openModal('contact-modal');
+
+function editContact(c) {
+  document.getElementById('contact-modal-title').textContent = 'Edit Contact';
+  document.getElementById('contact-id').value = c.id;
+  ['first_name','last_name','email','phone','mobile','job_title',
+   'address','linkedin','twitter','status','source','notes'].forEach(f => {
+    const el = document.getElementById('cf-' + f);
+    if (el) el.value = c[f] || '';
+  });
+  document.getElementById('cf-company_id').value = c.company_id || '';
+  // tags
+  document.querySelectorAll('#contact-tag-picker input[type=checkbox]').forEach(cb => {
+    cb.checked = c.tags && c.tags.some(t => t.id == cb.value);
+  });
+  openModal('contact-modal');
+}
+
+async function saveContact(e) {
+  e.preventDefault();
+  const id = document.getElementById('contact-id').value;
+  const tagIds = [...document.querySelectorAll('#contact-tag-picker input:checked')].map(cb => parseInt(cb.value));
+  const data = {
+    first_name: document.getElementById('cf-first_name').value,
+    last_name: document.getElementById('cf-last_name').value,
+    email: document.getElementById('cf-email').value,
+    phone: document.getElementById('cf-phone').value,
+    mobile: document.getElementById('cf-mobile').value,
+    job_title: document.getElementById('cf-job_title').value,
+    company_id: document.getElementById('cf-company_id').value || null,
+    address: document.getElementById('cf-address').value,
+    linkedin: document.getElementById('cf-linkedin').value,
+    status: document.getElementById('cf-status').value,
+    source: document.getElementById('cf-source').value,
+    notes: document.getElementById('cf-notes').value,
+    tag_ids: tagIds
+  };
+  const url = id ? `/api/contacts/${id}` : '/api/contacts';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  if (res.ok) location.reload();
+  else alert('Error saving contact');
+}
+
+async function deleteContact(id, name) {
+  if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+  const res = await fetch(`/api/contacts/${id}`, {method: 'DELETE'});
+  if (res.ok) location.reload();
+}
+</script>
+{% endblock %}
