@@ -4,11 +4,19 @@ from datetime import datetime, date
 import json
 import csv
 import io
+import os
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///crm.db'
+
+# Use DATABASE_URL env var in production (Neon/Supabase/etc.), SQLite locally
+_db_url = os.environ.get('DATABASE_URL', 'sqlite:///crm.db')
+# Neon and some providers still emit postgres:// — SQLAlchemy requires postgresql://
+if _db_url.startswith('postgres://'):
+    _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'crm-secret-key-2024'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'crm-secret-key-change-in-prod')
 db = SQLAlchemy(app)
 
 # ─── Models ───────────────────────────────────────────────────────────────────
@@ -527,13 +535,14 @@ def export_contacts():
     return Response(output.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=contacts.csv'})
 
+# Create tables and seed default tags on startup (local SQLite and Vercel/Postgres)
+with app.app_context():
+    db.create_all()
+    if Tag.query.count() == 0:
+        for name, color in [('VIP', '#ef4444'), ('Hot Lead', '#f97316'),
+                              ('Partner', '#8b5cf6'), ('Newsletter', '#06b6d4')]:
+            db.session.add(Tag(name=name, color=color))
+        db.session.commit()
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        # seed demo tags if empty
-        if Tag.query.count() == 0:
-            for name, color in [('VIP', '#ef4444'), ('Hot Lead', '#f97316'),
-                                  ('Partner', '#8b5cf6'), ('Newsletter', '#06b6d4')]:
-                db.session.add(Tag(name=name, color=color))
-            db.session.commit()
     app.run(debug=True, port=5000)
