@@ -50,6 +50,30 @@
             <span>{{ company.address }}</span>
           </div>
         {% endif %}
+        {% if company.categories %}
+          <div class="info-row">
+            <span class="info-label">Categories</span>
+            <span>{{ company.categories }}</span>
+          </div>
+        {% endif %}
+        {% if company.rating %}
+          <div class="info-row">
+            <span class="info-label">Rating</span>
+            <span>⭐ {{ company.rating }}{% if company.review_count %} ({{ company.review_count }} reviews){% endif %}</span>
+          </div>
+        {% endif %}
+        {% if company.place_id %}
+          <div class="info-row">
+            <span class="info-label">Place ID</span>
+            <span class="text-muted text-sm">{{ company.place_id }}</span>
+          </div>
+        {% endif %}
+        {% if company.search_query %}
+          <div class="info-row">
+            <span class="info-label">Search Query</span>
+            <span class="text-muted">{{ company.search_query }}</span>
+          </div>
+        {% endif %}
         <div class="info-row">
           <span class="info-label">Added</span>
           <span>{{ company.created_at.strftime('%b %d, %Y') }}</span>

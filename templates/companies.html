@@ -8,6 +8,7 @@
     <span class="text-muted">{{ companies|length }} compan{{ 'ies' if companies|length != 1 else 'y' }}</span>
   </div>
   <div class="page-actions">
+    <a href="/import-sheet" class="btn btn-ghost">Import from Google Sheets</a>
     <button class="btn btn-primary" onclick="openModal('company-modal')">+ Add Company</button>
   </div>
 </div>

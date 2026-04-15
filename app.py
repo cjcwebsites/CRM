@@ -39,6 +39,14 @@ class Company(db.Model):
     phone = db.Column(db.String(50))
     email = db.Column(db.String(200))
     address = db.Column(db.Text)
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(100))
+    zipcode = db.Column(db.String(20))
+    categories = db.Column(db.String(300))
+    review_count = db.Column(db.Integer)
+    rating = db.Column(db.Float)
+    place_id = db.Column(db.String(200))
+    search_query = db.Column(db.String(300))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     contacts = db.relationship('Contact', backref='company', lazy=True)
@@ -48,7 +56,11 @@ class Company(db.Model):
         return {
             'id': self.id, 'name': self.name, 'website': self.website,
             'industry': self.industry, 'phone': self.phone, 'email': self.email,
-            'address': self.address, 'notes': self.notes,
+            'address': self.address, 'city': self.city, 'state': self.state,
+            'zipcode': self.zipcode, 'categories': self.categories,
+            'review_count': self.review_count, 'rating': self.rating,
+            'place_id': self.place_id, 'search_query': self.search_query,
+            'notes': self.notes,
             'contact_count': len(self.contacts), 'deal_count': len(self.deals),
             'created_at': self.created_at.strftime('%Y-%m-%d')
         }
@@ -356,7 +368,10 @@ def api_create_company():
         name=data['name'], website=data.get('website'),
         industry=data.get('industry'), phone=data.get('phone'),
         email=data.get('email'), address=data.get('address'),
-        notes=data.get('notes')
+        city=data.get('city'), state=data.get('state'), zipcode=data.get('zipcode'),
+        categories=data.get('categories'), review_count=data.get('review_count'),
+        rating=data.get('rating'), place_id=data.get('place_id'),
+        search_query=data.get('search_query'), notes=data.get('notes')
     )
     db.session.add(company)
     db.session.commit()
@@ -366,7 +381,9 @@ def api_create_company():
 def api_update_company(id):
     company = Company.query.get_or_404(id)
     data = request.json
-    for field in ['name', 'website', 'industry', 'phone', 'email', 'address', 'notes']:
+    for field in ['name', 'website', 'industry', 'phone', 'email', 'address',
+                  'city', 'state', 'zipcode', 'categories', 'review_count',
+                  'rating', 'place_id', 'search_query', 'notes']:
         if field in data:
             setattr(company, field, data[field])
     db.session.commit()
@@ -535,9 +552,198 @@ def export_contacts():
     return Response(output.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=contacts.csv'})
 
+# ─── Google Sheets Import ─────────────────────────────────────────────────────
+
+def lookup_zipcode(address, city, state):
+    """Call Nominatim (OpenStreetMap) to find a zip code from an address — free, no API key."""
+    import requests as req_lib
+    query = ', '.join(p for p in [address, city, state] if p)
+    if not query:
+        return ''
+    try:
+        resp = req_lib.get(
+            'https://nominatim.openstreetmap.org/search',
+            params={'q': query, 'format': 'json', 'addressdetails': 1, 'limit': 1},
+            headers={'User-Agent': 'MyCRM/1.0'},
+            timeout=6
+        )
+        if resp.ok and resp.json():
+            return resp.json()[0].get('address', {}).get('postcode', '')
+    except Exception:
+        pass
+    return ''
+
+def is_green(bg):
+    """Return True if a Google Sheets background color dict looks green."""
+    r = bg.get('red', 1.0)
+    g = bg.get('green', 1.0)
+    b = bg.get('blue', 1.0)
+    # Skip white / default (all channels near 1)
+    if r > 0.9 and g > 0.9 and b > 0.9:
+        return False
+    # Green channel must be dominant and meaningful
+    return g > r and g > b and g > 0.35
+
+@app.route('/import-sheet')
+def import_sheet_page():
+    return render_template('import_sheet.html')
+
+@app.route('/api/import-sheet', methods=['POST'])
+def api_import_sheet():
+    import re, time, json as json_lib
+    from googleapiclient.discovery import build
+    from google.oauth2.service_account import Credentials as GCredentials
+    from flask import Response
+
+    sheet_url  = request.form.get('sheet_url', '').strip()
+    creds_file = request.files.get('credentials')
+
+    if not sheet_url or not creds_file:
+        return jsonify({'error': 'Both a Sheet URL and a credentials file are required.'}), 400
+
+    # Parse credentials JSON
+    try:
+        creds_info = json_lib.load(creds_file)
+    except Exception:
+        return jsonify({'error': 'Could not read credentials file — make sure it is the JSON file you downloaded from Google.'}), 400
+
+    # Pull the spreadsheet ID out of the URL
+    match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)
+    if not match:
+        return jsonify({'error': 'That does not look like a valid Google Sheets URL.'}), 400
+    spreadsheet_id = match.group(1)
+
+    # Connect to Google Sheets
+    try:
+        creds = GCredentials.from_service_account_info(
+            creds_info,
+            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
+        )
+        service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
+    except Exception as e:
+        return jsonify({'error': f'Problem with credentials: {str(e)}'}), 400
+
+    # Fetch all cell data including background colours
+    try:
+        result = service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id,
+            includeGridData=True
+        ).execute()
+    except Exception as e:
+        return jsonify({'error': f'Could not open the sheet: {str(e)}'}), 400
+
+    rows = result['sheets'][0]['data'][0].get('rowData', [])
+    if len(rows) < 2:
+        return jsonify({'error': 'The sheet looks empty.'}), 400
+
+    # Header row → lower-case column names
+    headers = [
+        cell.get('formattedValue', '').strip().lower()
+        for cell in rows[0].get('values', [])
+    ]
+
+    # Map sheet column names to Company field names
+    col_map = {
+        'name': 'name', 'website': 'website', 'phone': 'phone',
+        'address': 'address', 'city': 'city', 'state': 'state',
+        'categories': 'categories', 'review_count': 'review_count',
+        'rating': 'rating', 'status': 'company_status',
+        'place_id': 'place_id', 'query': 'search_query',
+    }
+
+    imported, skipped, errors = 0, 0, []
+
+    for row in rows[1:]:
+        values = row.get('values', [])
+        if not values:
+            continue
+
+        # Check every cell for a green background
+        row_is_green = False
+        for cell in values:
+            bg = cell.get('userEnteredFormat', {}).get('backgroundColor', {})
+            if is_green(bg):
+                row_is_green = True
+                break
+        if not row_is_green:
+            continue
+
+        # Build a dict of { field_name: value } for this row
+        row_data = {}
+        for i, header in enumerate(headers):
+            if header in col_map:
+                val = values[i].get('formattedValue', '').strip() if i < len(values) else ''
+                row_data[col_map[header]] = val
+
+        company_name = row_data.get('name', '').strip()
+        if not company_name:
+            skipped += 1
+            continue
+
+        # Skip duplicates
+        if Company.query.filter_by(name=company_name).first():
+            skipped += 1
+            continue
+
+        # Look up zip code (Nominatim rate-limits to 1 req/sec)
+        address = row_data.get('address', '')
+        city    = row_data.get('city', '')
+        state   = row_data.get('state', '')
+        zipcode = lookup_zipcode(address, city, state)
+        time.sleep(1.1)
+
+        # Combine into a single address string
+        full_address = ', '.join(p for p in [address, city, state, zipcode] if p)
+
+        try:
+            rc = row_data.get('review_count', '')
+            rt = row_data.get('rating', '')
+            company = Company(
+                name=company_name,
+                website=row_data.get('website') or None,
+                phone=row_data.get('phone') or None,
+                address=full_address or None,
+                city=city or None,
+                state=state or None,
+                zipcode=zipcode or None,
+                categories=row_data.get('categories') or None,
+                review_count=int(rc) if rc and rc.isdigit() else None,
+                rating=float(rt) if rt else None,
+                place_id=row_data.get('place_id') or None,
+                search_query=row_data.get('search_query') or None,
+                notes=f"Status from sheet: {row_data['company_status']}" if row_data.get('company_status') else None,
+            )
+            db.session.add(company)
+            db.session.commit()
+            imported += 1
+        except Exception as e:
+            db.session.rollback()
+            errors.append(f"{company_name}: {str(e)}")
+            skipped += 1
+
+    return jsonify({'imported': imported, 'skipped': skipped, 'errors': errors})
+
 # Create tables and seed default tags on startup (local SQLite and Vercel/Postgres)
 with app.app_context():
     db.create_all()
+    # Add any new Company columns that don't exist yet (safe to run on every startup)
+    new_columns = [
+        ('city',         'VARCHAR(100)'),
+        ('state',        'VARCHAR(100)'),
+        ('zipcode',      'VARCHAR(20)'),
+        ('categories',   'VARCHAR(300)'),
+        ('review_count', 'INTEGER'),
+        ('rating',       'FLOAT'),
+        ('place_id',     'VARCHAR(200)'),
+        ('search_query', 'VARCHAR(300)'),
+    ]
+    with db.engine.connect() as conn:
+        for col_name, col_type in new_columns:
+            try:
+                conn.execute(db.text(f'ALTER TABLE company ADD COLUMN {col_name} {col_type}'))
+                conn.commit()
+            except Exception:
+                pass  # column already exists — that's fine
     if Tag.query.count() == 0:
         for name, color in [('VIP', '#ef4444'), ('Hot Lead', '#f97316'),
                               ('Partner', '#8b5cf6'), ('Newsletter', '#06b6d4')]:

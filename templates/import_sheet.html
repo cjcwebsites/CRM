@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Import from Google Sheets{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Import from Google Sheets</h1>
+    <span class="text-muted">Highlight rows green in your sheet, then import them here as companies</span>
+  </div>
+</div>
+
+<div class="import-layout">
+
+  <!-- Left: the form -->
+  <div>
+    <div class="card">
+      <div class="card-header"><h3>Import Green Rows</h3></div>
+      <div class="card-body">
+        <form id="import-form" onsubmit="runImport(event)">
+
+          <div class="form-group" style="margin-bottom:16px">
+            <label>Google Sheet URL</label>
+            <input type="url" id="sheet-url" class="input"
+              placeholder="https://docs.google.com/spreadsheets/d/…" required />
+            <span class="field-hint">Paste the full URL of your Google Sheet</span>
+          </div>
+
+          <div class="form-group" style="margin-bottom:20px">
+            <label>Google Credentials File (JSON)</label>
+            <div class="file-drop" id="file-drop" onclick="document.getElementById('creds-file').click()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <span id="file-label">Click to choose your credentials JSON file</span>
+            </div>
+            <input type="file" id="creds-file" accept=".json" style="display:none"
+              onchange="document.getElementById('file-label').textContent = this.files[0]?.name || 'No file chosen'" />
+            <span class="field-hint">This is the file you download from Google Cloud (explained on the right →)</span>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="import-btn" style="width:100%">
+            Import Green Rows into Companies
+          </button>
+        </form>
+
+        <!-- Result box -->
+        <div id="import-result" style="display:none; margin-top:20px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: step-by-step instructions -->
+  <div>
+    <div class="card">
+      <div class="card-header"><h3>How to set this up (one time only)</h3></div>
+      <div class="card-body">
+        <div class="setup-steps">
+
+          <div class="setup-step">
+            <div class="step-num">1</div>
+            <div>
+              <strong>Go to Google Cloud Console</strong><br/>
+              <span class="text-muted">Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> and sign in with your Google account.</span>
+            </div>
+          </div>
+
+          <div class="setup-step">
+            <div class="step-num">2</div>
+            <div>
+              <strong>Create a new project</strong><br/>
+              <span class="text-muted">Click the project dropdown at the top → "New Project" → give it any name → Create.</span>
+            </div>
+          </div>
+
+          <div class="setup-step">
+            <div class="step-num">3</div>
+            <div>
+              <strong>Enable the Google Sheets API</strong><br/>
+              <span class="text-muted">Go to "APIs & Services" → "Enable APIs" → search for "Google Sheets API" → click Enable.</span>
+            </div>
+          </div>
+
+          <div class="setup-step">
+            <div class="step-num">4</div>
+            <div>
+              <strong>Create a Service Account</strong><br/>
+              <span class="text-muted">Go to "APIs & Services" → "Credentials" → "Create Credentials" → "Service account" → fill in a name → Done.</span>
+            </div>
+          </div>
+
+          <div class="setup-step">
+            <div class="step-num">5</div>
+            <div>
+              <strong>Download the JSON key</strong><br/>
+              <span class="text-muted">Click your new service account → "Keys" tab → "Add Key" → "Create new key" → JSON → it will download a file. That's what you upload here.</span>
+            </div>
+          </div>
+
+          <div class="setup-step">
+            <div class="step-num">6</div>
+            <div>
+              <strong>Share your Google Sheet with the service account</strong><br/>
+              <span class="text-muted">Open your Google Sheet → Share → paste the service account email (it looks like <em>something@project-name.iam.gserviceaccount.com</em>, found inside the JSON file) → set to Viewer → Share.</span>
+            </div>
+          </div>
+
+          <div class="setup-step">
+            <div class="step-num">7</div>
+            <div>
+              <strong>Highlight rows green & import</strong><br/>
+              <span class="text-muted">In your sheet, highlight any row green that you want imported. Then come back here and click Import.</span>
+            </div>
+          </div>
+
+        </div><!-- end setup-steps -->
+
+        <div class="info-box mt-3">
+          <strong>Your sheet columns:</strong>
+          <code>name · website · phone · address · city · categories · review_count · rating · status · place_id · state · query</code><br/>
+          Make sure your sheet has these exact column headers in the first row.
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div><!-- end import-layout -->
+
+<style>
+.import-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.field-hint { font-size: .78rem; color: #94a3b8; margin-top: 4px; display: block; }
+.file-drop {
+  border: 2px dashed #e2e8f0; border-radius: 10px; padding: 28px 20px;
+  text-align: center; cursor: pointer; color: #94a3b8;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  transition: border-color .15s, background .15s;
+}
+.file-drop:hover { border-color: #6366f1; background: #f5f3ff; color: #6366f1; }
+.setup-steps { display: flex; flex-direction: column; gap: 16px; }
+.setup-step { display: flex; gap: 12px; align-items: flex-start; font-size: .875rem; }
+.step-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: #6366f1; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+}
+.info-box {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 12px 14px; font-size: .82rem; color: #475569;
+}
+.info-box code { display: block; margin-top: 6px; font-size: .8rem; color: #6366f1; word-break: break-all; }
+.result-success { background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 18px; }
+.result-error   { background: #fee2e2; border: 1px solid #fecaca; border-radius: 10px; padding: 16px 18px; }
+.result-title { font-weight: 700; font-size: 1rem; margin-bottom: 6px; }
+.result-body  { font-size: .875rem; }
+@media (max-width: 900px) { .import-layout { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+async function runImport(e) {
+  e.preventDefault();
+  const btn = document.getElementById('import-btn');
+  const resultBox = document.getElementById('import-result');
+  const credsFile = document.getElementById('creds-file').files[0];
+
+  if (!credsFile) {
+    alert('Please choose your credentials JSON file first.');
+    return;
+  }
+
+  btn.textContent = 'Importing… (this may take a minute)';
+  btn.disabled = true;
+  resultBox.style.display = 'none';
+
+  const form = new FormData();
+  form.append('sheet_url', document.getElementById('sheet-url').value);
+  form.append('credentials', credsFile);
+
+  try {
+    const res = await fetch('/api/import-sheet', { method: 'POST', body: form });
+    const data = await res.json();
+
+    if (data.error) {
+      resultBox.innerHTML = `
+        <div class="result-error">
+          <div class="result-title">Something went wrong</div>
+          <div class="result-body">${data.error}</div>
+        </div>`;
+    } else {
+      let errHtml = '';
+      if (data.errors && data.errors.length) {
+        errHtml = `<br/><strong>Errors:</strong><ul style="margin:6px 0 0 16px">` +
+          data.errors.map(e => `<li>${e}</li>`).join('') + `</ul>`;
+      }
+      resultBox.innerHTML = `
+        <div class="result-success">
+          <div class="result-title">Import complete!</div>
+          <div class="result-body">
+            <strong>${data.imported}</strong> companies imported &nbsp;·&nbsp;
+            <strong>${data.skipped}</strong> skipped (already existed or no name)
+            ${errHtml}
+            <br/><br/>
+            <a href="/companies" class="btn btn-primary btn-sm">View Companies →</a>
+          </div>
+        </div>`;
+    }
+  } catch (err) {
+    resultBox.innerHTML = `<div class="result-error"><div class="result-title">Network error</div><div class="result-body">Could not reach the server. Make sure the app is running.</div></div>`;
+  }
+
+  resultBox.style.display = 'block';
+  btn.textContent = 'Import Green Rows into Companies';
+  btn.disabled = false;
+}
+</script>
+{% endblock %}
