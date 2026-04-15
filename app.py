@@ -31,6 +31,15 @@ class Tag(db.Model):
     name = db.Column(db.String(50), unique=True, nullable=False)
     color = db.Column(db.String(20), default='#6366f1')
 
+class SyncConfig(db.Model):
+    """Stores the Google Sheet URL and saved credentials filename for live sync."""
+    id = db.Column(db.Integer, primary_key=True)
+    sheet_url = db.Column(db.String(500))
+    credentials_filename = db.Column(db.String(300))  # filename inside uploads/
+    is_active = db.Column(db.Boolean, default=False)
+    last_synced = db.Column(db.DateTime)
+    last_result = db.Column(db.Text)  # JSON: {added, removed, errors}
+
 class Company(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
@@ -47,6 +56,7 @@ class Company(db.Model):
     rating = db.Column(db.Float)
     place_id = db.Column(db.String(200))
     search_query = db.Column(db.String(300))
+    sheet_synced = db.Column(db.Boolean, default=False)  # True = came from Google Sheet
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     contacts = db.relationship('Contact', backref='company', lazy=True)
@@ -60,7 +70,7 @@ class Company(db.Model):
             'zipcode': self.zipcode, 'categories': self.categories,
             'review_count': self.review_count, 'rating': self.rating,
             'place_id': self.place_id, 'search_query': self.search_query,
-            'notes': self.notes,
+            'sheet_synced': self.sheet_synced, 'notes': self.notes,
             'contact_count': len(self.contacts), 'deal_count': len(self.deals),
             'created_at': self.created_at.strftime('%Y-%m-%d')
         }
@@ -396,6 +406,13 @@ def api_delete_company(id):
     db.session.commit()
     return jsonify({'success': True})
 
+@app.route('/api/companies/<int:id>/notes', methods=['PATCH'])
+def api_company_notes(id):
+    company = Company.query.get_or_404(id)
+    company.notes = request.json.get('notes', '')
+    db.session.commit()
+    return jsonify({'success': True, 'notes': company.notes})
+
 # Deals API
 @app.route('/api/deals', methods=['POST'])
 def api_create_deal():
@@ -552,7 +569,20 @@ def export_contacts():
     return Response(output.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=contacts.csv'})
 
-# ─── Google Sheets Import ─────────────────────────────────────────────────────
+# ─── Google Sheets Live Sync ──────────────────────────────────────────────────
+
+import threading, time as _time_mod
+
+UPLOADS_DIR = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+COL_MAP = {
+    'name': 'name', 'website': 'website', 'phone': 'phone',
+    'address': 'address', 'city': 'city', 'state': 'state',
+    'categories': 'categories', 'review_count': 'review_count',
+    'rating': 'rating', 'status': 'company_status',
+    'place_id': 'place_id', 'query': 'search_query',
+}
 
 def lookup_zipcode(address, city, state):
     """Call Nominatim (OpenStreetMap) to find a zip code from an address — free, no API key."""
@@ -586,142 +616,221 @@ def is_green(bg):
 
 @app.route('/import-sheet')
 def import_sheet_page():
-    return render_template('import_sheet.html')
+    config = SyncConfig.query.first()
+    return render_template('import_sheet.html', config=config)
 
-@app.route('/api/import-sheet', methods=['POST'])
-def api_import_sheet():
-    import re, time, json as json_lib
-    from googleapiclient.discovery import build
-    from google.oauth2.service_account import Credentials as GCredentials
-    from flask import Response
-
+# ── Setup: save credentials file + sheet URL ──────────────────────────────────
+@app.route('/api/sync/setup', methods=['POST'])
+def api_sync_setup():
     sheet_url  = request.form.get('sheet_url', '').strip()
     creds_file = request.files.get('credentials')
 
-    if not sheet_url or not creds_file:
-        return jsonify({'error': 'Both a Sheet URL and a credentials file are required.'}), 400
+    if not sheet_url:
+        return jsonify({'error': 'Please enter your Google Sheet URL.'}), 400
 
-    # Parse credentials JSON
-    try:
-        creds_info = json_lib.load(creds_file)
-    except Exception:
-        return jsonify({'error': 'Could not read credentials file — make sure it is the JSON file you downloaded from Google.'}), 400
-
-    # Pull the spreadsheet ID out of the URL
-    match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url)
-    if not match:
+    import re, json as json_lib
+    if not re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', sheet_url):
         return jsonify({'error': 'That does not look like a valid Google Sheets URL.'}), 400
-    spreadsheet_id = match.group(1)
 
-    # Connect to Google Sheets
-    try:
-        creds = GCredentials.from_service_account_info(
-            creds_info,
-            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly']
-        )
-        service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
-    except Exception as e:
-        return jsonify({'error': f'Problem with credentials: {str(e)}'}), 400
+    config = SyncConfig.query.first() or SyncConfig()
 
-    # Fetch all cell data including background colours
-    try:
-        result = service.spreadsheets().get(
-            spreadsheetId=spreadsheet_id,
-            includeGridData=True
-        ).execute()
-    except Exception as e:
-        return jsonify({'error': f'Could not open the sheet: {str(e)}'}), 400
+    # Save credentials file if a new one was uploaded
+    if creds_file and creds_file.filename:
+        try:
+            json_lib.load(creds_file)          # validate it's valid JSON
+            creds_file.seek(0)
+        except Exception:
+            return jsonify({'error': 'Credentials file is not valid JSON.'}), 400
+        filename = 'google_credentials.json'
+        creds_file.save(os.path.join(UPLOADS_DIR, filename))
+        config.credentials_filename = filename
+    elif not config.credentials_filename:
+        return jsonify({'error': 'Please upload your Google credentials JSON file.'}), 400
 
-    rows = result['sheets'][0]['data'][0].get('rowData', [])
-    if len(rows) < 2:
-        return jsonify({'error': 'The sheet looks empty.'}), 400
+    config.sheet_url = sheet_url
+    db.session.add(config)
+    db.session.commit()
+    return jsonify({'success': True})
 
-    # Header row → lower-case column names
-    headers = [
-        cell.get('formattedValue', '').strip().lower()
-        for cell in rows[0].get('values', [])
-    ]
+# ── Toggle live sync on/off ───────────────────────────────────────────────────
+@app.route('/api/sync/toggle', methods=['POST'])
+def api_sync_toggle():
+    config = SyncConfig.query.first()
+    if not config or not config.sheet_url or not config.credentials_filename:
+        return jsonify({'error': 'Set up your sheet first.'}), 400
+    config.is_active = not config.is_active
+    db.session.commit()
+    return jsonify({'is_active': config.is_active})
 
-    # Map sheet column names to Company field names
-    col_map = {
-        'name': 'name', 'website': 'website', 'phone': 'phone',
-        'address': 'address', 'city': 'city', 'state': 'state',
-        'categories': 'categories', 'review_count': 'review_count',
-        'rating': 'rating', 'status': 'company_status',
-        'place_id': 'place_id', 'query': 'search_query',
-    }
+# ── Status ────────────────────────────────────────────────────────────────────
+@app.route('/api/sync/status')
+def api_sync_status():
+    config = SyncConfig.query.first()
+    if not config:
+        return jsonify({'configured': False})
+    import json as json_lib
+    result = json_lib.loads(config.last_result) if config.last_result else {}
+    return jsonify({
+        'configured': bool(config.sheet_url and config.credentials_filename),
+        'is_active': config.is_active,
+        'sheet_url': config.sheet_url,
+        'last_synced': config.last_synced.strftime('%b %d %H:%M:%S') if config.last_synced else None,
+        'last_result': result,
+    })
 
-    imported, skipped, errors = 0, 0, []
+# ── Manual sync now ───────────────────────────────────────────────────────────
+@app.route('/api/sync/now', methods=['POST'])
+def api_sync_now():
+    result = do_sync()
+    return jsonify(result)
 
-    for row in rows[1:]:
-        values = row.get('values', [])
-        if not values:
-            continue
+# ── Core sync function (called by background thread and manual trigger) ────────
+def do_sync():
+    import re, json as json_lib
+    from googleapiclient.discovery import build
+    from google.oauth2.service_account import Credentials as GCredentials
 
-        # Check every cell for a green background
-        row_is_green = False
-        for cell in values:
-            bg = cell.get('userEnteredFormat', {}).get('backgroundColor', {})
-            if is_green(bg):
-                row_is_green = True
-                break
-        if not row_is_green:
-            continue
+    with app.app_context():
+        config = SyncConfig.query.first()
+        if not config or not config.sheet_url or not config.credentials_filename:
+            return {'error': 'Not configured'}
 
-        # Build a dict of { field_name: value } for this row
-        row_data = {}
-        for i, header in enumerate(headers):
-            if header in col_map:
-                val = values[i].get('formattedValue', '').strip() if i < len(values) else ''
-                row_data[col_map[header]] = val
-
-        company_name = row_data.get('name', '').strip()
-        if not company_name:
-            skipped += 1
-            continue
-
-        # Skip duplicates
-        if Company.query.filter_by(name=company_name).first():
-            skipped += 1
-            continue
-
-        # Look up zip code (Nominatim rate-limits to 1 req/sec)
-        address = row_data.get('address', '')
-        city    = row_data.get('city', '')
-        state   = row_data.get('state', '')
-        zipcode = lookup_zipcode(address, city, state)
-        time.sleep(1.1)
-
-        # Combine into a single address string
-        full_address = ', '.join(p for p in [address, city, state, zipcode] if p)
+        creds_path = os.path.join(UPLOADS_DIR, config.credentials_filename)
+        if not os.path.exists(creds_path):
+            return {'error': 'Credentials file missing'}
 
         try:
-            rc = row_data.get('review_count', '')
-            rt = row_data.get('rating', '')
-            company = Company(
-                name=company_name,
-                website=row_data.get('website') or None,
-                phone=row_data.get('phone') or None,
-                address=full_address or None,
-                city=city or None,
-                state=state or None,
-                zipcode=zipcode or None,
-                categories=row_data.get('categories') or None,
-                review_count=int(rc) if rc and rc.isdigit() else None,
-                rating=float(rt) if rt else None,
-                place_id=row_data.get('place_id') or None,
-                search_query=row_data.get('search_query') or None,
-                notes=f"Status from sheet: {row_data['company_status']}" if row_data.get('company_status') else None,
-            )
-            db.session.add(company)
-            db.session.commit()
-            imported += 1
+            with open(creds_path) as f:
+                creds_info = json_lib.load(f)
         except Exception as e:
-            db.session.rollback()
-            errors.append(f"{company_name}: {str(e)}")
-            skipped += 1
+            return {'error': f'Could not read credentials: {e}'}
 
-    return jsonify({'imported': imported, 'skipped': skipped, 'errors': errors})
+        match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', config.sheet_url)
+        if not match:
+            return {'error': 'Invalid sheet URL'}
+        spreadsheet_id = match.group(1)
+
+        try:
+            creds = GCredentials.from_service_account_info(
+                creds_info, scopes=['https://www.googleapis.com/auth/spreadsheets.readonly'])
+            service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
+            result = service.spreadsheets().get(
+                spreadsheetId=spreadsheet_id, includeGridData=True).execute()
+        except Exception as e:
+            return {'error': f'Google Sheets error: {e}'}
+
+        rows = result['sheets'][0]['data'][0].get('rowData', [])
+        if len(rows) < 2:
+            return {'error': 'Sheet looks empty'}
+
+        headers = [cell.get('formattedValue', '').strip().lower()
+                   for cell in rows[0].get('values', [])]
+
+        green_place_ids = set()
+        green_names     = set()
+        added = removed = 0
+        errors = []
+
+        for row in rows[1:]:
+            values = row.get('values', [])
+            if not values:
+                continue
+
+            row_is_green = any(
+                is_green(cell.get('userEnteredFormat', {}).get('backgroundColor', {}))
+                for cell in values)
+
+            # Parse row into a dict using COL_MAP
+            row_data = {}
+            for i, header in enumerate(headers):
+                if header in COL_MAP:
+                    row_data[COL_MAP[header]] = (
+                        values[i].get('formattedValue', '').strip() if i < len(values) else '')
+
+            company_name = row_data.get('name', '').strip()
+            place_id     = row_data.get('place_id', '').strip()
+            if not company_name:
+                continue
+
+            # Track what is currently green so we can remove un-highlighted rows
+            if row_is_green:
+                if place_id: green_place_ids.add(place_id)
+                green_names.add(company_name)
+
+                # Find existing record
+                existing = (Company.query.filter_by(place_id=place_id).first() if place_id
+                            else Company.query.filter_by(name=company_name).first())
+                if existing:
+                    continue  # already in CRM, nothing to do
+
+                # Look up zip code then create the company
+                address = row_data.get('address', '')
+                city    = row_data.get('city', '')
+                state   = row_data.get('state', '')
+                zipcode = lookup_zipcode(address, city, state)
+                _time_mod.sleep(1.1)   # Nominatim: 1 req/sec limit
+                full_address = ', '.join(p for p in [address, city, state, zipcode] if p)
+
+                try:
+                    rc = row_data.get('review_count', '')
+                    rt = row_data.get('rating', '')
+                    company = Company(
+                        name=company_name,
+                        website=row_data.get('website') or None,
+                        phone=row_data.get('phone') or None,
+                        address=full_address or None,
+                        city=city or None, state=state or None, zipcode=zipcode or None,
+                        categories=row_data.get('categories') or None,
+                        review_count=int(rc) if rc and rc.isdigit() else None,
+                        rating=float(rt) if rt else None,
+                        place_id=place_id or None,
+                        search_query=row_data.get('search_query') or None,
+                        sheet_synced=True,
+                    )
+                    db.session.add(company)
+                    db.session.commit()
+                    added += 1
+                except Exception as e:
+                    db.session.rollback()
+                    errors.append(f"{company_name}: {e}")
+
+        # Remove sheet-synced companies whose rows are no longer highlighted green
+        for company in Company.query.filter_by(sheet_synced=True).all():
+            still_green = (
+                (company.place_id and company.place_id in green_place_ids) or
+                (not company.place_id and company.name in green_names)
+            )
+            if not still_green:
+                try:
+                    db.session.delete(company)
+                    db.session.commit()
+                    removed += 1
+                except Exception as e:
+                    db.session.rollback()
+                    errors.append(f"Remove {company.name}: {e}")
+
+        # Persist result
+        import json as json_lib2
+        config.last_synced = datetime.utcnow()
+        config.last_result = json_lib2.dumps({'added': added, 'removed': removed, 'errors': errors})
+        db.session.commit()
+
+        return {'added': added, 'removed': removed, 'errors': errors}
+
+# ── Background polling thread (runs every 30 s when sync is active) ───────────
+def _sync_loop():
+    _time_mod.sleep(10)   # give Flask a moment to fully start
+    while True:
+        try:
+            with app.app_context():
+                config = SyncConfig.query.first()
+                if config and config.is_active:
+                    do_sync()
+        except Exception:
+            pass
+        _time_mod.sleep(30)
+
+threading.Thread(target=_sync_loop, daemon=True).start()
 
 # Create tables and seed default tags on startup (local SQLite and Vercel/Postgres)
 with app.app_context():
@@ -736,6 +845,7 @@ with app.app_context():
         ('rating',       'FLOAT'),
         ('place_id',     'VARCHAR(200)'),
         ('search_query', 'VARCHAR(300)'),
+        ('sheet_synced', 'BOOLEAN DEFAULT 0'),
     ]
     with db.engine.connect() as conn:
         for col_name, col_type in new_columns:

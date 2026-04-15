@@ -1,214 +1,229 @@
 {% extends "base.html" %}
-{% block title %}Import from Google Sheets{% endblock %}
+{% block title %}Live Sheet Sync{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div>
-    <h1>Import from Google Sheets</h1>
-    <span class="text-muted">Highlight rows green in your sheet, then import them here as companies</span>
+    <h1>Live Google Sheet Sync</h1>
+    <span class="text-muted">Highlight a row green → it appears in Companies. Remove the highlight → it's gone.</span>
   </div>
+  {% if config and config.sheet_url and config.credentials_filename %}
+  <div class="page-actions">
+    <button class="btn btn-ghost" id="sync-now-btn" onclick="syncNow()">Sync Now</button>
+    <button class="btn {% if config.is_active %}btn-danger-ghost{% else %}btn-primary{% endif %}"
+            id="toggle-btn" onclick="toggleSync()">
+      {% if config.is_active %}Stop Live Sync{% else %}Start Live Sync{% endif %}
+    </button>
+  </div>
+  {% endif %}
 </div>
+
+<!-- Status bar (shown when configured) -->
+{% if config and config.sheet_url and config.credentials_filename %}
+<div class="sync-status-bar" id="status-bar">
+  <div class="sync-indicator {% if config.is_active %}sync-on{% else %}sync-off{% endif %}" id="sync-dot"></div>
+  <span id="sync-label">{% if config.is_active %}Live sync is ON — checking every 30 seconds{% else %}Live sync is OFF{% endif %}</span>
+  <span class="text-muted" style="margin-left:auto" id="last-synced-label">
+    {% if config.last_synced %}Last synced: {{ config.last_synced.strftime('%b %d, %H:%M:%S') }}{% else %}Not synced yet{% endif %}
+  </span>
+</div>
+
+{% if config.last_result %}
+  {% set r = config.last_result | tojson %}
+  <div id="last-result-box" class="result-inline"></div>
+{% endif %}
+{% endif %}
 
 <div class="import-layout">
 
-  <!-- Left: the form -->
+  <!-- LEFT: Setup form -->
   <div>
     <div class="card">
-      <div class="card-header"><h3>Import Green Rows</h3></div>
+      <div class="card-header">
+        <h3>{% if config and config.sheet_url %}Update Settings{% else %}Connect Your Sheet{% endif %}</h3>
+      </div>
       <div class="card-body">
-        <form id="import-form" onsubmit="runImport(event)">
+        <form id="setup-form" onsubmit="saveSetup(event)">
 
           <div class="form-group" style="margin-bottom:16px">
             <label>Google Sheet URL</label>
             <input type="url" id="sheet-url" class="input"
+              value="{{ config.sheet_url if config and config.sheet_url else '' }}"
               placeholder="https://docs.google.com/spreadsheets/d/…" required />
-            <span class="field-hint">Paste the full URL of your Google Sheet</span>
           </div>
 
           <div class="form-group" style="margin-bottom:20px">
-            <label>Google Credentials File (JSON)</label>
+            <label>Google Credentials File (JSON)
+              {% if config and config.credentials_filename %}
+                <span class="badge badge-success" style="margin-left:6px">✓ Saved</span>
+              {% endif %}
+            </label>
             <div class="file-drop" id="file-drop" onclick="document.getElementById('creds-file').click()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-              <span id="file-label">Click to choose your credentials JSON file</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><path d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <span id="file-label">
+                {% if config and config.credentials_filename %}Click to replace credentials file{% else %}Click to choose credentials JSON{% endif %}
+              </span>
             </div>
             <input type="file" id="creds-file" accept=".json" style="display:none"
-              onchange="document.getElementById('file-label').textContent = this.files[0]?.name || 'No file chosen'" />
-            <span class="field-hint">This is the file you download from Google Cloud (explained on the right →)</span>
+              onchange="document.getElementById('file-label').textContent = this.files[0]?.name" />
           </div>
 
-          <button type="submit" class="btn btn-primary" id="import-btn" style="width:100%">
-            Import Green Rows into Companies
-          </button>
+          <button type="submit" class="btn btn-primary" style="width:100%">Save & Connect</button>
         </form>
-
-        <!-- Result box -->
-        <div id="import-result" style="display:none; margin-top:20px"></div>
+        <div id="setup-result" style="margin-top:14px"></div>
       </div>
     </div>
   </div>
 
-  <!-- Right: step-by-step instructions -->
+  <!-- RIGHT: How-to steps -->
   <div>
     <div class="card">
-      <div class="card-header"><h3>How to set this up (one time only)</h3></div>
+      <div class="card-header"><h3>One-time setup (5 minutes)</h3></div>
       <div class="card-body">
         <div class="setup-steps">
-
           <div class="setup-step">
             <div class="step-num">1</div>
-            <div>
-              <strong>Go to Google Cloud Console</strong><br/>
-              <span class="text-muted">Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> and sign in with your Google account.</span>
-            </div>
+            <div><strong>Go to Google Cloud Console</strong><br/>
+            <span class="text-muted">Open <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> and sign in.</span></div>
           </div>
-
           <div class="setup-step">
             <div class="step-num">2</div>
-            <div>
-              <strong>Create a new project</strong><br/>
-              <span class="text-muted">Click the project dropdown at the top → "New Project" → give it any name → Create.</span>
-            </div>
+            <div><strong>Create a project</strong><br/>
+            <span class="text-muted">Click the project dropdown → New Project → give it any name → Create.</span></div>
           </div>
-
           <div class="setup-step">
             <div class="step-num">3</div>
-            <div>
-              <strong>Enable the Google Sheets API</strong><br/>
-              <span class="text-muted">Go to "APIs & Services" → "Enable APIs" → search for "Google Sheets API" → click Enable.</span>
-            </div>
+            <div><strong>Enable Google Sheets API</strong><br/>
+            <span class="text-muted">APIs & Services → Enable APIs → search "Google Sheets API" → Enable.</span></div>
           </div>
-
           <div class="setup-step">
             <div class="step-num">4</div>
-            <div>
-              <strong>Create a Service Account</strong><br/>
-              <span class="text-muted">Go to "APIs & Services" → "Credentials" → "Create Credentials" → "Service account" → fill in a name → Done.</span>
-            </div>
+            <div><strong>Create a Service Account</strong><br/>
+            <span class="text-muted">APIs & Services → Credentials → Create Credentials → Service account → fill in a name → Done.</span></div>
           </div>
-
           <div class="setup-step">
             <div class="step-num">5</div>
-            <div>
-              <strong>Download the JSON key</strong><br/>
-              <span class="text-muted">Click your new service account → "Keys" tab → "Add Key" → "Create new key" → JSON → it will download a file. That's what you upload here.</span>
-            </div>
+            <div><strong>Download the JSON key</strong><br/>
+            <span class="text-muted">Click your service account → Keys tab → Add Key → Create new key → JSON. A file downloads — that's what you upload here.</span></div>
           </div>
-
           <div class="setup-step">
             <div class="step-num">6</div>
-            <div>
-              <strong>Share your Google Sheet with the service account</strong><br/>
-              <span class="text-muted">Open your Google Sheet → Share → paste the service account email (it looks like <em>something@project-name.iam.gserviceaccount.com</em>, found inside the JSON file) → set to Viewer → Share.</span>
-            </div>
+            <div><strong>Share your sheet with the service account</strong><br/>
+            <span class="text-muted">Open your Google Sheet → Share → paste the service account email (inside the JSON file, it's the <code>client_email</code> value) → Viewer → Share.</span></div>
           </div>
-
           <div class="setup-step">
             <div class="step-num">7</div>
-            <div>
-              <strong>Highlight rows green & import</strong><br/>
-              <span class="text-muted">In your sheet, highlight any row green that you want imported. Then come back here and click Import.</span>
-            </div>
+            <div><strong>Highlight rows green and press Start Live Sync</strong><br/>
+            <span class="text-muted">Green rows appear in Companies within 30 seconds. Remove the highlight and they disappear.</span></div>
           </div>
-
-        </div><!-- end setup-steps -->
-
-        <div class="info-box mt-3">
-          <strong>Your sheet columns:</strong>
-          <code>name · website · phone · address · city · categories · review_count · rating · status · place_id · state · query</code><br/>
-          Make sure your sheet has these exact column headers in the first row.
         </div>
 
+        <div class="info-box mt-3">
+          <strong>Expected column headers in your sheet:</strong><br/>
+          <code>name · website · phone · address · city · categories · review_count · rating · status · place_id · state · query</code>
+        </div>
       </div>
     </div>
   </div>
 
-</div><!-- end import-layout -->
+</div>
 
 <style>
-.import-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-.field-hint { font-size: .78rem; color: #94a3b8; margin-top: 4px; display: block; }
+.import-layout { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; margin-top:20px; }
+.sync-status-bar {
+  display:flex; align-items:center; gap:10px;
+  background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+  padding:12px 16px; margin-bottom:16px; font-size:.875rem;
+}
+.sync-indicator { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.sync-on  { background:#22c55e; box-shadow:0 0 0 3px #dcfce7; animation:pulse 2s infinite; }
+.sync-off { background:#94a3b8; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 3px #dcfce7} 50%{box-shadow:0 0 0 6px #dcfce7} }
+.result-inline {
+  background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;
+  padding:10px 14px; font-size:.85rem; margin-bottom:16px; color:#166534;
+}
 .file-drop {
-  border: 2px dashed #e2e8f0; border-radius: 10px; padding: 28px 20px;
-  text-align: center; cursor: pointer; color: #94a3b8;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  transition: border-color .15s, background .15s;
+  border:2px dashed #e2e8f0; border-radius:10px; padding:22px 16px;
+  text-align:center; cursor:pointer; color:#94a3b8;
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  transition:border-color .15s, background .15s; font-size:.85rem;
 }
-.file-drop:hover { border-color: #6366f1; background: #f5f3ff; color: #6366f1; }
-.setup-steps { display: flex; flex-direction: column; gap: 16px; }
-.setup-step { display: flex; gap: 12px; align-items: flex-start; font-size: .875rem; }
+.file-drop:hover { border-color:#6366f1; background:#f5f3ff; color:#6366f1; }
+.setup-steps { display:flex; flex-direction:column; gap:14px; }
+.setup-step { display:flex; gap:10px; align-items:flex-start; font-size:.855rem; }
 .step-num {
-  width: 26px; height: 26px; border-radius: 50%;
-  background: #6366f1; color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  font-size: .75rem; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+  width:24px; height:24px; border-radius:50%; background:#6366f1; color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-size:.72rem; font-weight:700; flex-shrink:0; margin-top:2px;
 }
-.info-box {
-  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
-  padding: 12px 14px; font-size: .82rem; color: #475569;
-}
-.info-box code { display: block; margin-top: 6px; font-size: .8rem; color: #6366f1; word-break: break-all; }
-.result-success { background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 18px; }
-.result-error   { background: #fee2e2; border: 1px solid #fecaca; border-radius: 10px; padding: 16px 18px; }
-.result-title { font-weight: 700; font-size: 1rem; margin-bottom: 6px; }
-.result-body  { font-size: .875rem; }
-@media (max-width: 900px) { .import-layout { grid-template-columns: 1fr; } }
+.info-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 14px; font-size:.82rem; color:#475569; }
+.info-box code { display:block; margin-top:6px; font-size:.78rem; color:#6366f1; word-break:break-all; }
+@media(max-width:900px){.import-layout{grid-template-columns:1fr}}
 </style>
 
 <script>
-async function runImport(e) {
+async function saveSetup(e) {
   e.preventDefault();
-  const btn = document.getElementById('import-btn');
-  const resultBox = document.getElementById('import-result');
-  const credsFile = document.getElementById('creds-file').files[0];
-
-  if (!credsFile) {
-    alert('Please choose your credentials JSON file first.');
-    return;
-  }
-
-  btn.textContent = 'Importing… (this may take a minute)';
-  btn.disabled = true;
-  resultBox.style.display = 'none';
-
   const form = new FormData();
   form.append('sheet_url', document.getElementById('sheet-url').value);
-  form.append('credentials', credsFile);
+  const file = document.getElementById('creds-file').files[0];
+  if (file) form.append('credentials', file);
 
-  try {
-    const res = await fetch('/api/import-sheet', { method: 'POST', body: form });
-    const data = await res.json();
-
-    if (data.error) {
-      resultBox.innerHTML = `
-        <div class="result-error">
-          <div class="result-title">Something went wrong</div>
-          <div class="result-body">${data.error}</div>
-        </div>`;
-    } else {
-      let errHtml = '';
-      if (data.errors && data.errors.length) {
-        errHtml = `<br/><strong>Errors:</strong><ul style="margin:6px 0 0 16px">` +
-          data.errors.map(e => `<li>${e}</li>`).join('') + `</ul>`;
-      }
-      resultBox.innerHTML = `
-        <div class="result-success">
-          <div class="result-title">Import complete!</div>
-          <div class="result-body">
-            <strong>${data.imported}</strong> companies imported &nbsp;·&nbsp;
-            <strong>${data.skipped}</strong> skipped (already existed or no name)
-            ${errHtml}
-            <br/><br/>
-            <a href="/companies" class="btn btn-primary btn-sm">View Companies →</a>
-          </div>
-        </div>`;
-    }
-  } catch (err) {
-    resultBox.innerHTML = `<div class="result-error"><div class="result-title">Network error</div><div class="result-body">Could not reach the server. Make sure the app is running.</div></div>`;
+  const res  = await fetch('/api/sync/setup', { method:'POST', body:form });
+  const data = await res.json();
+  const box  = document.getElementById('setup-result');
+  if (data.error) {
+    box.innerHTML = `<div style="color:#dc2626;font-size:.85rem">⚠ ${data.error}</div>`;
+  } else {
+    box.innerHTML = `<div style="color:#16a34a;font-size:.85rem">✓ Saved! You can now start Live Sync.</div>`;
+    setTimeout(() => location.reload(), 1200);
   }
-
-  resultBox.style.display = 'block';
-  btn.textContent = 'Import Green Rows into Companies';
-  btn.disabled = false;
 }
+
+async function toggleSync() {
+  const btn = document.getElementById('toggle-btn');
+  btn.disabled = true;
+  const res  = await fetch('/api/sync/toggle', { method:'POST' });
+  const data = await res.json();
+  if (data.error) { alert(data.error); btn.disabled = false; return; }
+  location.reload();
+}
+
+async function syncNow() {
+  const btn = document.getElementById('sync-now-btn');
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+  const res  = await fetch('/api/sync/now', { method:'POST' });
+  const data = await res.json();
+  btn.textContent = 'Sync Now';
+  btn.disabled = false;
+  if (data.error) {
+    alert(data.error);
+  } else {
+    showResult(data);
+    refreshStatus();
+  }
+}
+
+function showResult(data) {
+  const box = document.getElementById('last-result-box');
+  if (!box) return;
+  box.style.display = 'block';
+  box.innerHTML = `✓ Last sync: <strong>+${data.added} added</strong>, <strong>−${data.removed} removed</strong>${data.errors?.length ? ` — ${data.errors.length} error(s)` : ''}`;
+}
+
+async function refreshStatus() {
+  const res  = await fetch('/api/sync/status');
+  const data = await res.json();
+  const label = document.getElementById('last-synced-label');
+  if (label && data.last_synced) label.textContent = 'Last synced: ' + data.last_synced;
+  if (data.last_result) showResult(data.last_result);
+}
+
+// Poll status every 15 s so the page stays fresh while sync runs in background
+{% if config and config.is_active %}
+setInterval(refreshStatus, 15000);
+{% endif %}
 </script>
 {% endblock %}

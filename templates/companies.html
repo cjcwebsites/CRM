@@ -29,12 +29,15 @@
     <div class="company-card-header">
       <div class="company-logo">{{ c.name[0] }}</div>
       <div class="company-card-actions">
+        {% if c.sheet_synced %}<span title="Synced from Google Sheet" style="font-size:.7rem;color:#22c55e;margin-right:2px">⬤</span>{% endif %}
         <button class="btn btn-xs btn-ghost" onclick='editCompany({{ c.to_dict()|tojson }})'>✎</button>
         <button class="btn btn-xs btn-danger-ghost" onclick="deleteCompany({{ c.id }}, '{{ c.name }}')">✕</button>
       </div>
     </div>
     <a href="/companies/{{ c.id }}" class="company-name">{{ c.name }}</a>
-    {% if c.industry %}<div class="text-muted text-sm">{{ c.industry }}</div>{% endif %}
+    {% if c.categories %}<div class="text-muted text-sm">{{ c.categories }}</div>
+    {% elif c.industry %}<div class="text-muted text-sm">{{ c.industry }}</div>{% endif %}
+    {% if c.rating %}<div class="text-sm" style="color:#f59e0b;margin-top:2px">⭐ {{ c.rating }}{% if c.review_count %} <span class="text-muted">({{ c.review_count }})</span>{% endif %}</div>{% endif %}
     <div class="company-meta">
       {% if c.website %}
         <a href="{{ c.website }}" target="_blank" rel="noopener" class="company-meta-item">
@@ -46,6 +49,24 @@
         <span class="company-meta-item">{{ c.phone }}</span>
       {% endif %}
     </div>
+
+    <!-- Inline notes -->
+    <div class="notes-area" id="notes-area-{{ c.id }}" onclick="openNotes({{ c.id }})">
+      {% if c.notes %}
+        <div class="notes-preview">{{ c.notes }}</div>
+      {% else %}
+        <span class="notes-add-btn">+ Add note</span>
+      {% endif %}
+    </div>
+    <div class="notes-editor" id="notes-editor-{{ c.id }}" style="display:none">
+      <textarea class="input notes-textarea" id="notes-text-{{ c.id }}" rows="3"
+        placeholder="Type your note…" onclick="event.stopPropagation()">{{ c.notes or '' }}</textarea>
+      <div class="notes-editor-actions">
+        <button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();cancelNotes({{ c.id }})">Cancel</button>
+        <button class="btn btn-xs btn-primary" onclick="event.stopPropagation();saveNotes({{ c.id }})">Save</button>
+      </div>
+    </div>
+
     <div class="company-stats">
       <span>{{ c.contact_count }} contact{{ 's' if c.contact_count != 1 }}</span>
       <span>{{ c.deal_count }} deal{{ 's' if c.deal_count != 1 }}</span>
@@ -144,5 +165,60 @@ async function deleteCompany(id, name) {
   const res = await fetch(`/api/companies/${id}`, {method:'DELETE'});
   if (res.ok) location.reload();
 }
+
+// ── Inline notes ──────────────────────────────────────────────────────────────
+function openNotes(id) {
+  document.getElementById('notes-area-' + id).style.display = 'none';
+  document.getElementById('notes-editor-' + id).style.display = 'block';
+  document.getElementById('notes-text-' + id).focus();
+}
+function cancelNotes(id) {
+  document.getElementById('notes-editor-' + id).style.display = 'none';
+  document.getElementById('notes-area-' + id).style.display = 'block';
+}
+async function saveNotes(id) {
+  const text = document.getElementById('notes-text-' + id).value;
+  const res  = await fetch(`/api/companies/${id}/notes`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({notes: text})
+  });
+  if (!res.ok) { alert('Could not save note'); return; }
+  // Update the preview in place — no page reload needed
+  const area   = document.getElementById('notes-area-' + id);
+  area.innerHTML = text
+    ? `<div class="notes-preview">${text.replace(/</g,'&lt;')}</div>`
+    : `<span class="notes-add-btn">+ Add note</span>`;
+  cancelNotes(id);
+}
 </script>
+
+<style>
+.notes-area {
+  margin: 8px 0 4px;
+  cursor: pointer;
+  min-height: 24px;
+}
+.notes-preview {
+  font-size: .78rem;
+  color: #475569;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid #f1f5f9;
+}
+.notes-preview:hover { border-color: #c7d2fe; background: #f5f3ff; }
+.notes-add-btn {
+  font-size: .78rem;
+  color: #94a3b8;
+  padding: 3px 0;
+  display: block;
+}
+.notes-add-btn:hover { color: #6366f1; }
+.notes-editor { margin: 6px 0; }
+.notes-textarea { font-size: .8rem; padding: 6px 8px; resize: none; }
+.notes-editor-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+</style>
 {% endblock %}
