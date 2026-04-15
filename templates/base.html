@@ -3,46 +3,74 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}CRM{% endblock %} — MyCRM</title>
+  <title>{% block title %}CRM{% endblock %} — WebAgency CRM</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
 
-<!-- Sidebar -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
     <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
       <rect width="28" height="28" rx="8" fill="#6366f1"/>
-      <path d="M7 14a7 7 0 1 1 14 0A7 7 0 0 1 7 14Z" fill="white" fill-opacity=".2"/>
       <circle cx="14" cy="14" r="4" fill="white"/>
     </svg>
-    <span class="sidebar-logo-text">MyCRM</span>
+    <span class="sidebar-logo-text">WebAgency CRM</span>
   </div>
 
   <nav class="sidebar-nav">
     <a href="/dashboard" class="nav-item {% if request.path == '/dashboard' %}active{% endif %}">
-      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11l8-8 8 8v7a1 1 0 01-1 1H3a1 1 0 01-1-1v-7z"/><path d="M7 21v-6h6v6"/></svg>
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11l8-8 8 8v7a1 1 0 01-1 1H3a1 1 0 01-1-1v-7z"/></svg>
       Dashboard
     </a>
+
+    <div class="nav-section">SALES</div>
+
+    <a href="/follow-ups" class="nav-item {% if '/follow-ups' in request.path %}active{% endif %}">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+      Follow-Ups
+      {%- set fu_count = namespace(n=0) %}
+      {%- if request.path == '/dashboard' %}{% endif %}
+    </a>
+
     <a href="/contacts" class="nav-item {% if '/contacts' in request.path %}active{% endif %}">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
-      Contacts
+      Leads
     </a>
-    <a href="/companies" class="nav-item {% if '/companies' in request.path %}active{% endif %}">
-      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clip-rule="evenodd"/></svg>
-      Companies
+
+    <a href="/clients" class="nav-item {% if '/clients' in request.path %}active{% endif %}">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Clients
     </a>
-    <a href="/deals" class="nav-item {% if '/deals' in request.path %}active{% endif %}">
-      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/></svg>
-      Deals
+
+    <div class="nav-section">BILLING</div>
+
+    <a href="/invoices" class="nav-item {% if '/invoices' in request.path %}active{% endif %}">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/></svg>
+      Invoices
     </a>
+
+    <div class="nav-section">INSIGHTS</div>
+
+    <a href="/analytics" class="nav-item {% if '/analytics' in request.path %}active{% endif %}">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Analytics
+    </a>
+
+    <div class="nav-section">MORE</div>
+
     <a href="/activities" class="nav-item {% if '/activities' in request.path %}active{% endif %}">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
       Activities
     </a>
+
+    <a href="/companies" class="nav-item {% if '/companies' in request.path %}active{% endif %}">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clip-rule="evenodd"/></svg>
+      Companies
+    </a>
+
     <a href="/import-sheet" class="nav-item {% if '/import-sheet' in request.path %}active{% endif %}">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-      Import Sheet
+      Sheet Sync
     </a>
   </nav>
 
@@ -54,24 +82,22 @@
   </div>
 </aside>
 
-<!-- Main -->
 <div class="main-wrap">
-  <!-- Top bar -->
   <header class="topbar">
     <button class="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">
       <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><path fill-rule="evenodd" d="M3 5h14a1 1 0 010 2H3a1 1 0 010-2zm0 4h14a1 1 0 010 2H3a1 1 0 010-2zm0 4h14a1 1 0 010 2H3a1 1 0 010-2z" clip-rule="evenodd"/></svg>
     </button>
     <div class="search-bar">
       <svg viewBox="0 0 20 20" fill="currentColor" class="search-icon"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
-      <input type="text" id="global-search" placeholder="Search contacts, companies, deals…" autocomplete="off" />
+      <input type="text" id="global-search" placeholder="Search leads, clients…" autocomplete="off" />
       <div class="search-results" id="search-results"></div>
     </div>
     <div class="topbar-actions">
-      <button class="btn btn-primary btn-sm" onclick="quickAddModal()">+ Add</button>
+      <a href="/follow-ups" class="btn btn-ghost btn-sm">📞 Call Queue</a>
+      <button class="btn btn-primary btn-sm" onclick="openModal('quick-add-modal')">+ New Lead</button>
     </div>
   </header>
 
-  <!-- Flash messages -->
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       <div class="flash-container">
@@ -82,42 +108,125 @@
     {% endif %}
   {% endwith %}
 
-  <!-- Page content -->
   <main class="main-content">
     {% block content %}{% endblock %}
   </main>
 </div>
 
-<!-- Quick Add Modal -->
+<!-- Quick Add Lead Modal -->
 <div class="modal-overlay" id="quick-add-modal" onclick="closeModal('quick-add-modal')">
-  <div class="modal" onclick="event.stopPropagation()">
+  <div class="modal modal-lg" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <h3>Quick Add</h3>
+      <h3>Log New Lead</h3>
       <button class="modal-close" onclick="closeModal('quick-add-modal')">&times;</button>
     </div>
     <div class="modal-body">
-      <div class="quick-add-grid">
-        <a href="/contacts?add=1" class="quick-add-card">
-          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z"/></svg>
-          New Contact
-        </a>
-        <a href="/companies?add=1" class="quick-add-card">
-          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2h-3a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H4a1 1 0 110-2V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clip-rule="evenodd"/></svg>
-          New Company
-        </a>
-        <a href="/deals?add=1" class="quick-add-card">
-          <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/></svg>
-          New Deal
-        </a>
-        <a href="/activities?add=1" class="quick-add-card">
-          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
-          New Activity
-        </a>
-      </div>
+      <form onsubmit="quickAddLead(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Owner / Contact Name *</label>
+            <input type="text" id="ql-first_name" class="input" placeholder="First name" required />
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <input type="text" id="ql-last_name" class="input" placeholder="Last name" />
+          </div>
+          <div class="form-group">
+            <label>Business Name</label>
+            <input type="text" id="ql-business_name" class="input" placeholder="e.g. Smith Plumbing LLC" />
+          </div>
+          <div class="form-group">
+            <label>Trade *</label>
+            <select id="ql-trade" class="input">
+              <option value="">— Select trade —</option>
+              {% for t in ['Plumber','Electrician','HVAC/AC','Roofer','Painter','Landscaper','General Contractor','Carpenter','Handyman','Other'] %}
+                <option value="{{ t }}">{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Phone *</label>
+            <input type="tel" id="ql-phone" class="input" required />
+          </div>
+          <div class="form-group">
+            <label>Stage</label>
+            <select id="ql-lead_stage" class="input" onchange="updateFollowUpSuggestion(this.value)">
+              <option value="new">New Lead</option>
+              <option value="voicemail">Left Voicemail</option>
+              <option value="interested">Interested</option>
+              <option value="proposal">Proposal Sent</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Monthly Fee ($)</label>
+            <input type="number" id="ql-monthly_fee" class="input" min="0" step="0.01" placeholder="0" />
+          </div>
+          <div class="form-group">
+            <label>Follow-up Date</label>
+            <input type="datetime-local" id="ql-next_follow_up" class="input" />
+          </div>
+          <div class="form-group col-span-2">
+            <label>Call Notes</label>
+            <textarea id="ql-notes" class="input" rows="3" placeholder="What did they say? Any objections?"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('quick-add-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Lead</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script>
+const FOLLOW_UP_DAYS = {voicemail:3, interested:1, proposal:3, new:1};
+
+function updateFollowUpSuggestion(stage) {
+  const days = FOLLOW_UP_DAYS[stage];
+  if (!days) return;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(9, 0, 0);
+  document.getElementById('ql-next_follow_up').value =
+    d.toISOString().slice(0, 16);
+}
+updateFollowUpSuggestion('new');
+
+async function quickAddLead(e) {
+  e.preventDefault();
+  const data = {
+    first_name: document.getElementById('ql-first_name').value,
+    last_name:  document.getElementById('ql-last_name').value || '—',
+    business_name: document.getElementById('ql-business_name').value,
+    trade:      document.getElementById('ql-trade').value,
+    phone:      document.getElementById('ql-phone').value,
+    lead_stage: document.getElementById('ql-lead_stage').value,
+    monthly_fee: parseFloat(document.getElementById('ql-monthly_fee').value) || 0,
+    next_follow_up: document.getElementById('ql-next_follow_up').value || null,
+    notes:      document.getElementById('ql-notes').value,
+    source:     'Cold Call',
+    status:     'lead',
+  };
+  const res = await fetch('/api/contacts', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (res.ok) {
+    closeModal('quick-add-modal');
+    const contact = await res.json();
+    // If notes, log the call too
+    if (data.notes) {
+      await fetch(`/api/contacts/${contact.id}/log-call`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({notes: data.notes, lead_stage: data.lead_stage})
+      });
+    }
+    window.location.reload();
+  } else {
+    alert('Error saving lead');
+  }
+}
+</script>
 </body>
 </html>

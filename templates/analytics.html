@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Analytics</h1>
+    <span class="text-muted">Business performance overview</span>
+  </div>
+</div>
+
+<!-- Top KPIs -->
+<div class="stats-grid stats-grid--4 mb-4">
+  <div class="stat-card stat-card--hero">
+    <div class="stat-label">Monthly Recurring Revenue</div>
+    <div class="stat-value stat-value--lg">${{ "{:,.0f}".format(mrr) }}</div>
+    <div class="stat-sub">{{ clients_count }} paying client{{ 's' if clients_count != 1 }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--green">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ conversion }}%</div>
+      <div class="stat-label">Win Rate</div>
+      <div class="stat-sub text-muted">{{ stage_counts.won }} won / {{ stage_counts.lost }} lost</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--blue">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ calls_month }}</div>
+      <div class="stat-label">Calls This Month</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--purple">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ all_leads_count }}</div>
+      <div class="stat-label">Total Leads</div>
+    </div>
+  </div>
+</div>
+
+<!-- Revenue Chart + Pipeline Funnel -->
+<div class="analytics-grid">
+  <!-- Revenue Bar Chart (CSS-only) -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Revenue — Last 6 Months</h3>
+    </div>
+    <div class="card-body">
+      <div class="bar-chart">
+        {% for m in revenue_months %}
+        <div class="bar-col">
+          <div class="bar-value">${{ "{:,.0f}".format(m.value) }}</div>
+          <div class="bar-outer">
+            <div class="bar-inner" style="height: {{ (m.value / max_rev * 100)|int }}%"></div>
+          </div>
+          <div class="bar-label">{{ m.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Pipeline Funnel -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Lead Pipeline</h3>
+    </div>
+    <div class="card-body">
+      {% set pipeline_total = (stage_counts.new + stage_counts.voicemail + stage_counts.interested + stage_counts.proposal + stage_counts.won + stage_counts.lost) or 1 %}
+      <div class="funnel-list">
+        {% set funnel = [('new','New Lead','#94a3b8'),('voicemail','Voicemail','#f59e0b'),('interested','Interested','#3b82f6'),('proposal','Proposal Sent','#8b5cf6'),('won','Won ✓','#22c55e'),('lost','Lost','#ef4444')] %}
+        {% for key, label, color in funnel %}
+        <div class="funnel-row">
+          <div class="funnel-label">
+            <span class="stage-dot" style="background:{{ color }}"></span>
+            {{ label }}
+          </div>
+          <div class="funnel-bar-wrap">
+            <div class="funnel-bar" style="width:{{ ([stage_counts.get(key,0) / pipeline_total * 100, 100]|min)|int }}%; background:{{ color }}; opacity:0.7"></div>
+          </div>
+          <div class="funnel-count">{{ stage_counts.get(key,0) }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Trades Breakdown -->
+{% if trade_counts %}
+<div class="card mt-4">
+  <div class="card-header">
+    <h3>Leads by Trade</h3>
+  </div>
+  <div class="card-body">
+    {% set trade_max = trade_counts.values()|max or 1 %}
+    <div class="trade-breakdown">
+      {% for trade, count in trade_counts.items()|sort(attribute='1', reverse=true) %}
+      <div class="trade-row">
+        <div class="trade-name"><span class="trade-badge">{{ trade }}</span></div>
+        <div class="trade-bar-wrap">
+          <div class="trade-bar" style="width:{{ (count / trade_max * 100)|int }}%"></div>
+        </div>
+        <div class="trade-count">{{ count }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Stage Counts Table -->
+<div class="card mt-4">
+  <div class="card-header"><h3>Stage Summary</h3></div>
+  <div class="card-body p0">
+    <table class="table">
+      <thead><tr><th>Stage</th><th>Count</th><th>% of Total</th></tr></thead>
+      <tbody>
+        {% set total_all = all_leads_count or 1 %}
+        {% for key, label in stage_labels.items() %}
+        <tr>
+          <td><span class="stage-badge stage--{{ key }}">{{ label }}</span></td>
+          <td class="fw-medium">{{ stage_counts.get(key, 0) }}</td>
+          <td class="text-muted">{{ ((stage_counts.get(key,0) / total_all) * 100)|round(1) }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

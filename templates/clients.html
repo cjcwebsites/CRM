@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Clients{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Clients</h1>
+    <span class="text-muted">{{ clients|length }} active client{{ 's' if clients|length != 1 }}</span>
+  </div>
+  <div class="page-actions">
+    <a href="/invoices" class="btn btn-ghost">View Invoices</a>
+    <button class="btn btn-secondary" onclick="generateMonthly()">⚡ Generate Monthly Invoices</button>
+  </div>
+</div>
+
+<!-- MRR Banner -->
+<div class="mrr-banner">
+  <div class="mrr-banner-item">
+    <div class="mrr-banner-label">Monthly Recurring Revenue</div>
+    <div class="mrr-banner-value">${{ "{:,.0f}".format(mrr) }}</div>
+  </div>
+  <div class="mrr-banner-item">
+    <div class="mrr-banner-label">Active Clients</div>
+    <div class="mrr-banner-value">{{ clients|length }}</div>
+  </div>
+  {% if overdue_invoices > 0 %}
+  <div class="mrr-banner-item mrr-banner-item--alert">
+    <div class="mrr-banner-label">Overdue Invoices</div>
+    <div class="mrr-banner-value text-danger">{{ overdue_invoices }}</div>
+  </div>
+  {% endif %}
+  <div class="mrr-banner-actions">
+    <a href="/invoices?status=overdue" class="btn btn-ghost btn-sm">View Outstanding</a>
+    <a href="/invoices" class="btn btn-primary btn-sm">All Invoices</a>
+  </div>
+</div>
+
+{% if clients %}
+<div class="card">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Business / Client</th>
+          <th>Trade</th>
+          <th>Monthly Fee</th>
+          <th>Website Status</th>
+          <th>Client Since</th>
+          <th>Last Call</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clients %}
+        <tr>
+          <td>
+            <a href="/contacts/{{ c.id }}" class="contact-name-link">
+              <div class="avatar avatar-xs">{{ c.first_name[0] }}{{ c.last_name[0] if c.last_name and c.last_name != '—' else '' }}</div>
+              <div>
+                <div class="fw-medium">{{ c.business_name or c.full_name }}</div>
+                {% if c.business_name %}<div class="text-xs text-muted">{{ c.full_name }}</div>{% endif %}
+                {% if c.phone %}<div class="text-xs text-muted">{{ c.phone }}</div>{% endif %}
+              </div>
+            </a>
+          </td>
+          <td>
+            {% if c.trade %}<span class="trade-badge">{{ c.trade }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-success fw-medium">${{ "{:,.0f}".format(c.monthly_fee or 0) }}/mo</td>
+          <td>
+            <span class="ws-badge ws--{{ c.website_status or 'not_started' }}">
+              {{ {'not_started':'Not Started','building':'Building','live':'Live'}.get(c.website_status, c.website_status or 'Not Started') }}
+            </span>
+          </td>
+          <td class="text-muted text-sm">{{ c.client_since.strftime('%b %d, %Y') if c.client_since else '—' }}</td>
+          <td class="text-muted text-sm">{{ c.last_call_date.strftime('%b %d') if c.last_call_date else '—' }}</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-xs btn-ghost" onclick="createInvoice({{ c.id }}, '{{ c.business_name or c.full_name }}', {{ c.monthly_fee or 0 }})">Invoice</button>
+              <button class="btn btn-xs btn-ghost" onclick='editClient({{ c.to_dict()|tojson }})'>Edit</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#f1f5f9"/><path d="M24 22a6 6 0 100-12 6 6 0 000 12zM12 38c0-6.627 5.373-12 12-12s12 5.373 12 12" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/></svg>
+  <h3>No clients yet</h3>
+  <p>When you mark a lead as "Won" they'll appear here.</p>
+  <a href="/contacts" class="btn btn-primary">View Leads</a>
+</div>
+{% endif %}
+
+<!-- Create Invoice Modal -->
+<div class="modal-overlay" id="invoice-modal" onclick="closeModal('invoice-modal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Create Invoice — <span id="inv-client-name"></span></h3>
+      <button class="modal-close" onclick="closeModal('invoice-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="inv-contact-id" />
+      <div class="form-group mb-3">
+        <label>Amount ($) *</label>
+        <input type="number" id="inv-amount" class="input" min="0" step="0.01" required />
+      </div>
+      <div class="form-group mb-3">
+        <label>Description</label>
+        <input type="text" id="inv-description" class="input" placeholder="Monthly Website Fee — June 2025" />
+      </div>
+      <div class="form-group mb-3">
+        <label>Due Date</label>
+        <input type="date" id="inv-due-date" class="input" />
+      </div>
+      <div class="form-group mb-3">
+        <label>Notes</label>
+        <textarea id="inv-notes" class="input" rows="2"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('invoice-modal')">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitInvoice()">Create Invoice</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Client Modal -->
+<div class="modal-overlay" id="edit-client-modal" onclick="closeModal('edit-client-modal')">
+  <div class="modal modal-lg" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Edit Client</h3>
+      <button class="modal-close" onclick="closeModal('edit-client-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="saveClientEdit(event)">
+        <input type="hidden" id="ec-id" />
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Monthly Fee ($)</label>
+            <input type="number" id="ec-monthly_fee" class="input" min="0" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label>Website Status</label>
+            <select id="ec-website_status" class="input">
+              <option value="not_started">Not Started</option>
+              <option value="building">Building</option>
+              <option value="live">Live</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Website URL</label>
+            <input type="url" id="ec-website_url" class="input" placeholder="https://" />
+          </div>
+          <div class="form-group">
+            <label>Client Since</label>
+            <input type="date" id="ec-client_since" class="input" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('edit-client-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function createInvoice(contactId, name, fee) {
+  document.getElementById('inv-contact-id').value = contactId;
+  document.getElementById('inv-client-name').textContent = name;
+  document.getElementById('inv-amount').value = fee || '';
+  const d = new Date(); d.setDate(d.getDate() + 14);
+  document.getElementById('inv-due-date').value = d.toISOString().slice(0,10);
+  const now = new Date();
+  document.getElementById('inv-description').value =
+    `Monthly Website Fee — ${now.toLocaleString('default',{month:'long'})} ${now.getFullYear()}`;
+  openModal('invoice-modal');
+}
+
+async function submitInvoice() {
+  const data = {
+    contact_id: parseInt(document.getElementById('inv-contact-id').value),
+    amount: parseFloat(document.getElementById('inv-amount').value),
+    description: document.getElementById('inv-description').value,
+    due_date: document.getElementById('inv-due-date').value,
+    notes: document.getElementById('inv-notes').value
+  };
+  const res = await fetch('/api/invoices', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (res.ok) {
+    closeModal('invoice-modal');
+    alert('Invoice created! View it in the Invoices tab.');
+  } else { alert('Error creating invoice'); }
+}
+
+async function generateMonthly() {
+  if (!confirm('Auto-create invoices for all clients who don\'t have one this month?')) return;
+  const res = await fetch('/api/invoices/generate-monthly', {method:'POST'});
+  const data = await res.json();
+  alert(`Created ${data.created} invoice${data.created !== 1 ? 's' : ''}!`);
+  if (data.created > 0) window.location = '/invoices';
+}
+
+function editClient(c) {
+  document.getElementById('ec-id').value = c.id;
+  document.getElementById('ec-monthly_fee').value = c.monthly_fee || '';
+  document.getElementById('ec-website_status').value = c.website_status || 'not_started';
+  document.getElementById('ec-website_url').value = c.website_url || '';
+  document.getElementById('ec-client_since').value = c.client_since || '';
+  openModal('edit-client-modal');
+}
+
+async function saveClientEdit(e) {
+  e.preventDefault();
+  const id = document.getElementById('ec-id').value;
+  const data = {
+    monthly_fee: parseFloat(document.getElementById('ec-monthly_fee').value) || 0,
+    website_status: document.getElementById('ec-website_status').value,
+    website_url: document.getElementById('ec-website_url').value,
+    client_since: document.getElementById('ec-client_since').value || null,
+  };
+  const res = await fetch(`/api/contacts/${id}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (res.ok) location.reload();
+  else alert('Error saving');
+}
+</script>
+{% endblock %}

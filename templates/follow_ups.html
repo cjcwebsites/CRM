@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Follow-Ups{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>📞 Call Queue</h1>
+    <span class="text-muted">
+      {{ overdue|length }} overdue · {{ due_today|length }} due today · {{ upcoming|length }} upcoming
+    </span>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-primary" onclick="openModal('quick-add-modal')">+ New Lead</button>
+  </div>
+</div>
+
+{% macro contact_row(c, urgent=false) %}
+<tr id="fu-row-{{ c.id }}" class="{% if urgent %}row-urgent{% endif %}">
+  <td>
+    <a href="/contacts/{{ c.id }}" class="contact-name-link">
+      <div class="avatar avatar-xs">{{ c.first_name[0] }}{{ c.last_name[0] if c.last_name and c.last_name != '—' else '' }}</div>
+      <div>
+        <div class="fw-medium">{{ c.business_name or c.full_name }}</div>
+        {% if c.business_name %}<div class="text-xs text-muted">{{ c.full_name }}</div>{% endif %}
+      </div>
+    </a>
+  </td>
+  <td>
+    {% if c.trade %}<span class="trade-badge">{{ c.trade }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+  </td>
+  <td><span class="stage-badge stage--{{ c.lead_stage }}">{{ stage_labels.get(c.lead_stage,'?') }}</span></td>
+  <td>
+    {% if c.phone %}
+      <a href="tel:{{ c.phone }}" class="phone-link">{{ c.phone }}</a>
+    {% else %}—{% endif %}
+  </td>
+  <td class="text-sm {% if c.next_follow_up and c.next_follow_up < now %}text-danger fw-medium{% else %}text-muted{% endif %}">
+    {% if c.next_follow_up %}
+      {{ c.next_follow_up.strftime('%b %d, %I:%M %p') }}
+    {% else %}—{% endif %}
+  </td>
+  <td class="text-muted text-sm">{{ c.call_count or 0 }}x</td>
+  <td>
+    <div class="row-actions">
+      <button class="btn btn-xs btn-primary" onclick='openLogCall({{ c.to_dict()|tojson }})'>Log Call</button>
+      <a href="/contacts/{{ c.id }}" class="btn btn-xs btn-ghost">View</a>
+    </div>
+  </td>
+</tr>
+{% endmacro %}
+
+<!-- OVERDUE -->
+{% if overdue %}
+<div class="section-label section-label--danger">
+  🔴 Overdue ({{ overdue|length }})
+</div>
+<div class="card mb-4">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead><tr><th>Name / Business</th><th>Trade</th><th>Stage</th><th>Phone</th><th>Was Due</th><th>Calls</th><th></th></tr></thead>
+      <tbody>
+        {% for c in overdue %}{{ contact_row(c, urgent=true) }}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- DUE TODAY -->
+{% if due_today %}
+<div class="section-label section-label--warning">
+  🟡 Due Today ({{ due_today|length }})
+</div>
+<div class="card mb-4">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead><tr><th>Name / Business</th><th>Trade</th><th>Stage</th><th>Phone</th><th>Due</th><th>Calls</th><th></th></tr></thead>
+      <tbody>
+        {% for c in due_today %}{{ contact_row(c) }}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if not overdue and not due_today %}
+<div class="empty-state-sm card mb-4" style="padding:24px; text-align:center">
+  <svg viewBox="0 0 20 20" fill="none" width="40" style="margin:0 auto 8px"><circle cx="10" cy="10" r="9" stroke="#22c55e" stroke-width="1.5"/><path d="M6 10l3 3 5-5" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="fw-medium" style="color:#16a34a">All caught up!</div>
+  <div class="text-muted text-sm">No overdue or due-today follow-ups.</div>
+</div>
+{% endif %}
+
+<!-- UPCOMING -->
+{% if upcoming %}
+<div class="section-label">Upcoming ({{ upcoming|length }})</div>
+<div class="card mb-4">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead><tr><th>Name / Business</th><th>Trade</th><th>Stage</th><th>Phone</th><th>Scheduled</th><th>Calls</th><th></th></tr></thead>
+      <tbody>
+        {% for c in upcoming %}{{ contact_row(c) }}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- NO FOLLOW-UP SET -->
+{% if no_followup %}
+<div class="section-label">No Follow-up Scheduled ({{ no_followup|length }})</div>
+<div class="card">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead><tr><th>Name / Business</th><th>Trade</th><th>Stage</th><th>Phone</th><th>Added</th><th>Calls</th><th></th></tr></thead>
+      <tbody>
+        {% for c in no_followup %}
+        <tr id="fu-row-{{ c.id }}">
+          <td>
+            <a href="/contacts/{{ c.id }}" class="contact-name-link">
+              <div class="avatar avatar-xs">{{ c.first_name[0] }}{{ c.last_name[0] if c.last_name and c.last_name != '—' else '' }}</div>
+              <div>
+                <div class="fw-medium">{{ c.business_name or c.full_name }}</div>
+                {% if c.business_name %}<div class="text-xs text-muted">{{ c.full_name }}</div>{% endif %}
+              </div>
+            </a>
+          </td>
+          <td>{% if c.trade %}<span class="trade-badge">{{ c.trade }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td><span class="stage-badge stage--{{ c.lead_stage }}">{{ stage_labels.get(c.lead_stage,'?') }}</span></td>
+          <td>{% if c.phone %}<a href="tel:{{ c.phone }}" class="phone-link">{{ c.phone }}</a>{% else %}—{% endif %}</td>
+          <td class="text-muted text-sm">{{ c.created_at.strftime('%b %d') }}</td>
+          <td class="text-muted text-sm">{{ c.call_count or 0 }}x</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-xs btn-primary" onclick='openLogCall({{ c.to_dict()|tojson }})'>Log Call</button>
+              <a href="/contacts/{{ c.id }}" class="btn btn-xs btn-ghost">View</a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Log Call Modal -->
+<div class="modal-overlay" id="log-call-modal" onclick="closeModal('log-call-modal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>Log Call — <span id="lc-name"></span></h3>
+      <button class="modal-close" onclick="closeModal('log-call-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="lc-id" />
+      <div class="form-group mb-3">
+        <label>Outcome / New Stage</label>
+        <select id="lc-stage" class="input" onchange="lcUpdateFollowUp(this.value)">
+          {% for s in stages %}
+            <option value="{{ s }}">{{ stage_labels[s] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mb-3">
+        <label>Monthly Fee ($) <span class="text-muted text-sm">— if winning now</span></label>
+        <input type="number" id="lc-fee" class="input" min="0" step="0.01" placeholder="0" />
+      </div>
+      <div class="form-group mb-3">
+        <label>Call Notes</label>
+        <textarea id="lc-notes" class="input" rows="3" placeholder="What did they say? Objections? Interest?"></textarea>
+      </div>
+      <div class="form-group mb-3">
+        <label>Next Follow-up</label>
+        <input type="datetime-local" id="lc-follow_up" class="input" />
+        <div class="text-xs text-muted mt-1">Auto-suggested based on stage — adjust as needed.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('log-call-modal')">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitLogCall()">Save Call</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FU_DAYS = {{ follow_up_days|tojson }};
+
+function openLogCall(c) {
+  document.getElementById('lc-id').value = c.id;
+  document.getElementById('lc-name').textContent = c.business_name || c.full_name;
+  document.getElementById('lc-stage').value = c.lead_stage || 'new';
+  document.getElementById('lc-notes').value = '';
+  document.getElementById('lc-fee').value = c.monthly_fee || '';
+  lcUpdateFollowUp(c.lead_stage || 'new');
+  openModal('log-call-modal');
+}
+
+function lcUpdateFollowUp(stage) {
+  const days = FU_DAYS[stage];
+  const el = document.getElementById('lc-follow_up');
+  if (!days) { el.value = ''; return; }
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(9, 0, 0);
+  el.value = d.toISOString().slice(0, 16);
+}
+
+async function submitLogCall() {
+  const id = document.getElementById('lc-id').value;
+  const stage = document.getElementById('lc-stage').value;
+  const fee = parseFloat(document.getElementById('lc-fee').value) || null;
+  const data = {
+    lead_stage: stage,
+    notes: document.getElementById('lc-notes').value,
+    next_follow_up: document.getElementById('lc-follow_up').value || null,
+  };
+  if (fee !== null) data.monthly_fee = fee;
+
+  const res = await fetch(`/api/contacts/${id}/log-call`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (res.ok) {
+    closeModal('log-call-modal');
+    // Remove or update row based on new stage
+    if (['won','lost','dnc'].includes(stage)) {
+      document.getElementById('fu-row-' + id)?.remove();
+    } else {
+      location.reload();
+    }
+  } else { alert('Error saving call'); }
+}
+</script>
+{% endblock %}

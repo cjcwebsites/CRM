@@ -1,10 +1,21 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import json
 import csv
 import io
 import os
+
+TRADES = ['Plumber','Electrician','HVAC/AC','Roofer','Painter',
+          'Landscaper','General Contractor','Carpenter','Handyman','Other']
+
+LEAD_STAGES = ['new','voicemail','interested','proposal','won','lost','dnc']
+LEAD_STAGE_LABELS = {
+    'new':'New Lead','voicemail':'Voicemail','interested':'Interested',
+    'proposal':'Proposal Sent','won':'Client (Won)','lost':'Not Interested','dnc':'Do Not Call'
+}
+# Days until suggested follow-up after each stage
+FOLLOW_UP_DAYS = {'voicemail':3,'interested':1,'proposal':3,'new':1}
 
 app = Flask(__name__)
 
@@ -87,32 +98,88 @@ class Contact(db.Model):
     address = db.Column(db.Text)
     linkedin = db.Column(db.String(200))
     twitter = db.Column(db.String(100))
-    status = db.Column(db.String(50), default='lead')  # lead, prospect, customer, churned
+    status = db.Column(db.String(50), default='lead')
     source = db.Column(db.String(100))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_contacted = db.Column(db.DateTime)
+    # ── Cold-call / trades fields ──────────────────────────────────────────
+    trade = db.Column(db.String(100))           # Plumber, Electrician, etc.
+    business_name = db.Column(db.String(200))   # Their business name
+    monthly_fee = db.Column(db.Float, default=0)# What we charge them/month
+    website_url = db.Column(db.String(200))     # Their live website
+    website_status = db.Column(db.String(50), default='not_started')  # not_started / building / live
+    client_since = db.Column(db.Date)           # Date they signed up
+    lead_stage = db.Column(db.String(50), default='new')  # new/voicemail/interested/proposal/won/lost/dnc
+    next_follow_up = db.Column(db.DateTime)     # When to call them next
+    call_count = db.Column(db.Integer, default=0)
+    last_call_date = db.Column(db.DateTime)
     tags = db.relationship('Tag', secondary=contact_tags, backref='contacts')
     activities = db.relationship('Activity', backref='contact', lazy=True, cascade='all, delete-orphan')
     deals = db.relationship('Deal', backref='contact', lazy=True)
+    invoices = db.relationship('Invoice', backref='contact', lazy=True, cascade='all, delete-orphan')
 
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
 
+    @property
+    def display_name(self):
+        return self.business_name or self.full_name
+
     def to_dict(self):
         return {
             'id': self.id, 'first_name': self.first_name, 'last_name': self.last_name,
-            'full_name': self.full_name, 'email': self.email, 'phone': self.phone,
-            'mobile': self.mobile, 'job_title': self.job_title,
+            'full_name': self.full_name, 'display_name': self.display_name,
+            'email': self.email, 'phone': self.phone, 'mobile': self.mobile,
+            'job_title': self.job_title,
             'company_id': self.company_id,
             'company_name': self.company.name if self.company else '',
             'address': self.address, 'linkedin': self.linkedin, 'twitter': self.twitter,
             'status': self.status, 'source': self.source, 'notes': self.notes,
+            'trade': self.trade, 'business_name': self.business_name,
+            'monthly_fee': self.monthly_fee or 0,
+            'website_url': self.website_url, 'website_status': self.website_status,
+            'client_since': self.client_since.strftime('%Y-%m-%d') if self.client_since else None,
+            'lead_stage': self.lead_stage or 'new',
+            'next_follow_up': self.next_follow_up.strftime('%Y-%m-%dT%H:%M') if self.next_follow_up else None,
+            'call_count': self.call_count or 0,
+            'last_call_date': self.last_call_date.strftime('%Y-%m-%d %H:%M') if self.last_call_date else None,
             'created_at': self.created_at.strftime('%Y-%m-%d'),
             'last_contacted': self.last_contacted.strftime('%Y-%m-%d') if self.last_contacted else None,
             'tags': [{'id': t.id, 'name': t.name, 'color': t.color} for t in self.tags]
         }
+
+class Invoice(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=False)
+    invoice_number = db.Column(db.String(50), unique=True)
+    amount = db.Column(db.Float, nullable=False)
+    description = db.Column(db.String(300))
+    due_date = db.Column(db.Date)
+    paid_date = db.Column(db.Date)
+    status = db.Column(db.String(20), default='pending')  # pending / paid / overdue / cancelled
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'contact_id': self.contact_id,
+            'client_name': self.contact.display_name,
+            'invoice_number': self.invoice_number, 'amount': self.amount,
+            'description': self.description,
+            'due_date': self.due_date.strftime('%Y-%m-%d') if self.due_date else None,
+            'paid_date': self.paid_date.strftime('%Y-%m-%d') if self.paid_date else None,
+            'status': self.status, 'notes': self.notes,
+            'created_at': self.created_at.strftime('%Y-%m-%d')
+        }
+
+def generate_invoice_number():
+    ym = date.today().strftime('%Y%m')
+    last = Invoice.query.filter(Invoice.invoice_number.like(f'INV-{ym}-%'))\
+                        .order_by(Invoice.id.desc()).first()
+    seq = (int(last.invoice_number.split('-')[-1]) + 1) if last else 1
+    return f'INV-{ym}-{seq:03d}'
 
 class Deal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -183,62 +250,72 @@ def index():
 
 @app.route('/dashboard')
 def dashboard():
+    now = datetime.utcnow()
+    today_end = now.replace(hour=23, minute=59, second=59)
+    clients = Contact.query.filter_by(lead_stage='won').all()
+    mrr = sum(c.monthly_fee or 0 for c in clients)
+    # Auto-mark overdue invoices
+    Invoice.query.filter(Invoice.status=='pending', Invoice.due_date < date.today())\
+                 .update({'status':'overdue'})
+    db.session.commit()
     stats = {
-        'total_contacts': Contact.query.count(),
-        'total_companies': Company.query.count(),
-        'open_deals': Deal.query.filter(Deal.stage.notin_(['won', 'lost'])).count(),
-        'won_deals': Deal.query.filter_by(stage='won').count(),
-        'pipeline_value': db.session.query(db.func.sum(Deal.value)).filter(
-            Deal.stage.notin_(['won', 'lost'])).scalar() or 0,
-        'won_value': db.session.query(db.func.sum(Deal.value)).filter_by(stage='won').scalar() or 0,
-        'overdue_tasks': Activity.query.filter(
-            Activity.type == 'task', Activity.completed == False,
-            Activity.due_date < datetime.utcnow()).count(),
-        'pending_tasks': Activity.query.filter(
-            Activity.type == 'task', Activity.completed == False).count(),
+        'mrr': mrr,
+        'client_count': len(clients),
+        'total_leads': Contact.query.filter(Contact.lead_stage.notin_(['won','lost','dnc'])).count(),
+        'follow_ups_today': Contact.query.filter(
+            Contact.lead_stage.notin_(['won','lost','dnc']),
+            Contact.next_follow_up <= today_end).count(),
+        'overdue_invoices': Invoice.query.filter_by(status='overdue').count(),
+        'paid_this_month': db.session.query(db.func.sum(Invoice.amount)).filter(
+            Invoice.status=='paid',
+            Invoice.paid_date >= date.today().replace(day=1)).scalar() or 0,
+        'interested_leads': Contact.query.filter_by(lead_stage='interested').count(),
+        'proposal_leads': Contact.query.filter_by(lead_stage='proposal').count(),
     }
-    recent_contacts = Contact.query.order_by(Contact.created_at.desc()).limit(5).all()
-    recent_deals = Deal.query.order_by(Deal.created_at.desc()).limit(5).all()
-    upcoming_activities = Activity.query.filter(
-        Activity.completed == False,
-        Activity.due_date >= datetime.utcnow()
-    ).order_by(Activity.due_date).limit(8).all()
-
-    stage_counts = {}
-    for stage in ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost']:
-        stage_counts[stage] = Deal.query.filter_by(stage=stage).count()
-
+    follow_ups_due = Contact.query.filter(
+        Contact.lead_stage.notin_(['won','lost','dnc']),
+        Contact.next_follow_up <= today_end
+    ).order_by(Contact.next_follow_up).limit(8).all()
+    recent_clients = Contact.query.filter_by(lead_stage='won')\
+                                  .order_by(Contact.client_since.desc()).limit(5).all()
+    recent_invoices = Invoice.query.order_by(Invoice.created_at.desc()).limit(5).all()
+    stage_counts = {s: Contact.query.filter_by(lead_stage=s).count() for s in LEAD_STAGES}
     return render_template('dashboard.html', stats=stats,
-                           recent_contacts=recent_contacts,
-                           recent_deals=recent_deals,
-                           upcoming_activities=upcoming_activities,
-                           stage_counts=stage_counts)
+                           follow_ups_due=follow_ups_due,
+                           recent_clients=recent_clients,
+                           recent_invoices=recent_invoices,
+                           stage_counts=stage_counts,
+                           stage_labels=LEAD_STAGE_LABELS,
+                           trades=TRADES, stages=LEAD_STAGES,
+                           follow_up_days=FOLLOW_UP_DAYS,
+                           now=now)
 
 @app.route('/contacts')
 def contacts():
     q = request.args.get('q', '')
-    status_filter = request.args.get('status', '')
-    tag_filter = request.args.get('tag', '')
-    query = Contact.query
+    stage_filter = request.args.get('stage', '')
+    trade_filter = request.args.get('trade', '')
+    query = Contact.query.filter(Contact.lead_stage.notin_(['won']))
     if q:
         query = query.filter(
             db.or_(
                 Contact.first_name.ilike(f'%{q}%'),
                 Contact.last_name.ilike(f'%{q}%'),
+                Contact.business_name.ilike(f'%{q}%'),
                 Contact.email.ilike(f'%{q}%'),
                 Contact.phone.ilike(f'%{q}%')
             )
         )
-    if status_filter:
-        query = query.filter_by(status=status_filter)
-    if tag_filter:
-        query = query.filter(Contact.tags.any(Tag.name == tag_filter))
+    if stage_filter:
+        query = query.filter_by(lead_stage=stage_filter)
+    if trade_filter:
+        query = query.filter_by(trade=trade_filter)
     contacts = query.order_by(Contact.created_at.desc()).all()
-    tags = Tag.query.order_by(Tag.name).all()
-    companies = Company.query.order_by(Company.name).all()
-    return render_template('contacts.html', contacts=contacts, tags=tags,
-                           companies=companies, q=q,
-                           status_filter=status_filter, tag_filter=tag_filter)
+    return render_template('contacts.html', contacts=contacts, q=q,
+                           stage_filter=stage_filter, trade_filter=trade_filter,
+                           trades=TRADES, stage_labels=LEAD_STAGE_LABELS,
+                           follow_up_days=FOLLOW_UP_DAYS,
+                           now=datetime.utcnow())
 
 @app.route('/contacts/<int:id>')
 def contact_detail(id):
@@ -319,6 +396,103 @@ def activities():
                            contacts=contacts, deals=deals,
                            type_filter=type_filter, done_filter=done_filter, q=q)
 
+@app.route('/follow-ups')
+def follow_ups():
+    today = datetime.utcnow()
+    overdue = Contact.query.filter(
+        Contact.lead_stage.notin_(['won','lost','dnc']),
+        Contact.next_follow_up < today
+    ).order_by(Contact.next_follow_up).all()
+    due_today = Contact.query.filter(
+        Contact.lead_stage.notin_(['won','lost','dnc']),
+        Contact.next_follow_up >= today,
+        Contact.next_follow_up < today.replace(hour=23, minute=59)
+    ).order_by(Contact.next_follow_up).all()
+    upcoming = Contact.query.filter(
+        Contact.lead_stage.notin_(['won','lost','dnc']),
+        Contact.next_follow_up >= today.replace(hour=23, minute=59)
+    ).order_by(Contact.next_follow_up).limit(20).all()
+    no_followup = Contact.query.filter(
+        Contact.lead_stage.notin_(['won','lost','dnc']),
+        Contact.next_follow_up == None
+    ).order_by(Contact.created_at.desc()).limit(20).all()
+    return render_template('follow_ups.html', overdue=overdue,
+                           due_today=due_today, upcoming=upcoming,
+                           no_followup=no_followup, trades=TRADES,
+                           stages=LEAD_STAGES, stage_labels=LEAD_STAGE_LABELS,
+                           follow_up_days=FOLLOW_UP_DAYS, now=today)
+
+@app.route('/clients')
+def clients():
+    clients = Contact.query.filter_by(lead_stage='won').order_by(Contact.client_since.desc()).all()
+    mrr = sum(c.monthly_fee or 0 for c in clients)
+    overdue_invoices = Invoice.query.filter_by(status='overdue').count()
+    return render_template('clients.html', clients=clients, mrr=mrr,
+                           overdue_invoices=overdue_invoices, trades=TRADES)
+
+@app.route('/invoices')
+def invoices():
+    status_filter = request.args.get('status', '')
+    client_filter = request.args.get('client_id', '')
+    query = Invoice.query
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+    if client_filter:
+        query = query.filter_by(contact_id=client_filter)
+    # Auto-mark overdue
+    Invoice.query.filter(
+        Invoice.status == 'pending',
+        Invoice.due_date < date.today()
+    ).update({'status': 'overdue'})
+    db.session.commit()
+    invoices = query.order_by(Invoice.created_at.desc()).all()
+    clients = Contact.query.filter_by(lead_stage='won').order_by(Contact.first_name).all()
+    total_outstanding = db.session.query(db.func.sum(Invoice.amount))\
+        .filter(Invoice.status.in_(['pending','overdue'])).scalar() or 0
+    total_paid_month = db.session.query(db.func.sum(Invoice.amount))\
+        .filter(Invoice.status == 'paid',
+                Invoice.paid_date >= date.today().replace(day=1)).scalar() or 0
+    return render_template('invoices.html', invoices=invoices, clients=clients,
+                           status_filter=status_filter, client_filter=client_filter,
+                           total_outstanding=total_outstanding, total_paid_month=total_paid_month)
+
+@app.route('/analytics')
+def analytics():
+    clients = Contact.query.filter_by(lead_stage='won').all()
+    mrr = sum(c.monthly_fee or 0 for c in clients)
+    all_leads = Contact.query.all()
+    stage_counts = {s: Contact.query.filter_by(lead_stage=s).count() for s in LEAD_STAGES}
+    trade_counts = {}
+    for t in TRADES:
+        trade_counts[t] = Contact.query.filter_by(trade=t).count()
+    trade_counts = {k:v for k,v in trade_counts.items() if v > 0}
+    # Revenue last 6 months
+    revenue_months = []
+    for i in range(5, -1, -1):
+        d = date.today().replace(day=1)
+        month = (d.month - i - 1) % 12 + 1
+        year  = d.year - ((d.month - i - 1) // 12)
+        rev = db.session.query(db.func.sum(Invoice.amount)).filter(
+            Invoice.status == 'paid',
+            db.extract('month', Invoice.paid_date) == month,
+            db.extract('year',  Invoice.paid_date) == year
+        ).scalar() or 0
+        revenue_months.append({'label': date(year, month, 1).strftime('%b'), 'value': rev})
+    # Calls this month
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0)
+    calls_month = Activity.query.filter(
+        Activity.type == 'call', Activity.created_at >= month_start).count()
+    won_count  = stage_counts.get('won', 0)
+    lost_count = stage_counts.get('lost', 0)
+    conversion = round(won_count / (won_count + lost_count) * 100) if (won_count + lost_count) > 0 else 0
+    max_rev = max((m['value'] for m in revenue_months), default=1) or 1
+    return render_template('analytics.html',
+                           mrr=mrr, clients_count=len(clients),
+                           stage_counts=stage_counts, trade_counts=trade_counts,
+                           revenue_months=revenue_months, max_rev=max_rev,
+                           calls_month=calls_month, conversion=conversion,
+                           stage_labels=LEAD_STAGE_LABELS, all_leads_count=len(all_leads))
+
 # ─── API Routes ───────────────────────────────────────────────────────────────
 
 # Contacts API
@@ -331,14 +505,22 @@ def api_contacts():
 def api_create_contact():
     data = request.json
     contact = Contact(
-        first_name=data['first_name'], last_name=data['last_name'],
+        first_name=data['first_name'], last_name=data.get('last_name', '—'),
         email=data.get('email'), phone=data.get('phone'),
         mobile=data.get('mobile'), job_title=data.get('job_title'),
         company_id=data.get('company_id') or None,
         address=data.get('address'), linkedin=data.get('linkedin'),
         twitter=data.get('twitter'), status=data.get('status', 'lead'),
-        source=data.get('source'), notes=data.get('notes')
+        source=data.get('source', 'Cold Call'), notes=data.get('notes'),
+        trade=data.get('trade'), business_name=data.get('business_name'),
+        monthly_fee=data.get('monthly_fee', 0),
+        lead_stage=data.get('lead_stage', 'new'),
     )
+    if data.get('next_follow_up'):
+        contact.next_follow_up = datetime.strptime(data['next_follow_up'], '%Y-%m-%dT%H:%M')
+    elif data.get('lead_stage') in FOLLOW_UP_DAYS:
+        days = FOLLOW_UP_DAYS[data['lead_stage']]
+        contact.next_follow_up = datetime.utcnow().replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=days)
     if data.get('tag_ids'):
         contact.tags = Tag.query.filter(Tag.id.in_(data['tag_ids'])).all()
     db.session.add(contact)
@@ -351,7 +533,8 @@ def api_update_contact(id):
     data = request.json
     for field in ['first_name', 'last_name', 'email', 'phone', 'mobile',
                   'job_title', 'address', 'linkedin', 'twitter', 'status',
-                  'source', 'notes']:
+                  'source', 'notes', 'trade', 'business_name', 'monthly_fee',
+                  'website_url', 'website_status', 'lead_stage']:
         if field in data:
             setattr(contact, field, data[field])
     if 'company_id' in data:
@@ -360,6 +543,15 @@ def api_update_contact(id):
         contact.tags = Tag.query.filter(Tag.id.in_(data['tag_ids'])).all()
     if 'last_contacted' in data and data['last_contacted']:
         contact.last_contacted = datetime.strptime(data['last_contacted'], '%Y-%m-%d')
+    if 'next_follow_up' in data and data['next_follow_up']:
+        contact.next_follow_up = datetime.strptime(data['next_follow_up'], '%Y-%m-%dT%H:%M')
+    elif 'next_follow_up' in data and not data['next_follow_up']:
+        contact.next_follow_up = None
+    if 'client_since' in data and data['client_since']:
+        from datetime import datetime as _dt
+        contact.client_since = _dt.strptime(data['client_since'], '%Y-%m-%d').date()
+    if data.get('lead_stage') == 'won' and not contact.client_since:
+        contact.client_since = date.today()
     db.session.commit()
     return jsonify(contact.to_dict())
 
@@ -412,6 +604,101 @@ def api_company_notes(id):
     company.notes = request.json.get('notes', '')
     db.session.commit()
     return jsonify({'success': True, 'notes': company.notes})
+
+# ── Lead/contact quick log call ───────────────────────────────────────────────
+@app.route('/api/contacts/<int:id>/log-call', methods=['POST'])
+def api_log_call(id):
+    contact = Contact.query.get_or_404(id)
+    data = request.json
+    contact.call_count = (contact.call_count or 0) + 1
+    contact.last_call_date = datetime.utcnow()
+    contact.last_contacted = datetime.utcnow()
+    if data.get('lead_stage'):
+        contact.lead_stage = data['lead_stage']
+        # If won, set client_since
+        if data['lead_stage'] == 'won' and not contact.client_since:
+            contact.client_since = date.today()
+    if data.get('next_follow_up'):
+        contact.next_follow_up = datetime.strptime(data['next_follow_up'], '%Y-%m-%dT%H:%M')
+    elif data.get('lead_stage') in FOLLOW_UP_DAYS:
+        days = FOLLOW_UP_DAYS[data['lead_stage']]
+        fu = datetime.utcnow().replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=days)
+        contact.next_follow_up = fu
+    if data.get('notes'):
+        activity = Activity(
+            type='call', subject=f"Called {contact.display_name}",
+            description=data['notes'], contact_id=id,
+            completed=True, completed_at=datetime.utcnow()
+        )
+        db.session.add(activity)
+    db.session.commit()
+    return jsonify(contact.to_dict())
+
+# ── Invoice API ───────────────────────────────────────────────────────────────
+@app.route('/api/invoices', methods=['POST'])
+def api_create_invoice():
+    data = request.json
+    inv = Invoice(
+        contact_id=data['contact_id'],
+        invoice_number=generate_invoice_number(),
+        amount=data['amount'],
+        description=data.get('description', 'Monthly Website Fee'),
+        due_date=datetime.strptime(data['due_date'], '%Y-%m-%d').date() if data.get('due_date') else (date.today() + timedelta(days=14)),
+        status='pending',
+        notes=data.get('notes')
+    )
+    db.session.add(inv)
+    db.session.commit()
+    return jsonify(inv.to_dict()), 201
+
+@app.route('/api/invoices/<int:id>/mark-paid', methods=['PATCH'])
+def api_mark_paid(id):
+    inv = Invoice.query.get_or_404(id)
+    inv.status = 'paid'
+    inv.paid_date = date.today()
+    db.session.commit()
+    return jsonify(inv.to_dict())
+
+@app.route('/api/invoices/<int:id>/cancel', methods=['PATCH'])
+def api_cancel_invoice(id):
+    inv = Invoice.query.get_or_404(id)
+    inv.status = 'cancelled'
+    db.session.commit()
+    return jsonify(inv.to_dict())
+
+@app.route('/api/invoices/<int:id>', methods=['DELETE'])
+def api_delete_invoice(id):
+    inv = Invoice.query.get_or_404(id)
+    db.session.delete(inv)
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/invoices/generate-monthly', methods=['POST'])
+def api_generate_monthly():
+    """Auto-create invoices for all active clients who don't have one this month."""
+    clients = Contact.query.filter_by(lead_stage='won').all()
+    month_start = date.today().replace(day=1)
+    created = 0
+    for c in clients:
+        if not c.monthly_fee:
+            continue
+        existing = Invoice.query.filter(
+            Invoice.contact_id == c.id,
+            Invoice.created_at >= datetime.combine(month_start, datetime.min.time())
+        ).first()
+        if not existing:
+            inv = Invoice(
+                contact_id=c.id,
+                invoice_number=generate_invoice_number(),
+                amount=c.monthly_fee,
+                description=f"Monthly Website Fee — {date.today().strftime('%B %Y')}",
+                due_date=date.today() + timedelta(days=14),
+                status='pending'
+            )
+            db.session.add(inv)
+            created += 1
+    db.session.commit()
+    return jsonify({'created': created})
 
 # Deals API
 @app.route('/api/deals', methods=['POST'])
@@ -836,7 +1123,7 @@ threading.Thread(target=_sync_loop, daemon=True).start()
 with app.app_context():
     db.create_all()
     # Add any new Company columns that don't exist yet (safe to run on every startup)
-    new_columns = [
+    company_columns = [
         ('city',         'VARCHAR(100)'),
         ('state',        'VARCHAR(100)'),
         ('zipcode',      'VARCHAR(20)'),
@@ -846,14 +1133,34 @@ with app.app_context():
         ('place_id',     'VARCHAR(200)'),
         ('search_query', 'VARCHAR(300)'),
         ('sheet_synced', 'BOOLEAN DEFAULT 0'),
+        ('notes',        'TEXT'),
+    ]
+    # Add cold-call fields to Contact table
+    contact_columns = [
+        ('trade',           'VARCHAR(100)'),
+        ('business_name',   'VARCHAR(200)'),
+        ('monthly_fee',     'FLOAT DEFAULT 0'),
+        ('website_url',     'VARCHAR(200)'),
+        ('website_status',  'VARCHAR(50) DEFAULT "not_started"'),
+        ('client_since',    'DATE'),
+        ('lead_stage',      'VARCHAR(50) DEFAULT "new"'),
+        ('next_follow_up',  'DATETIME'),
+        ('call_count',      'INTEGER DEFAULT 0'),
+        ('last_call_date',  'DATETIME'),
     ]
     with db.engine.connect() as conn:
-        for col_name, col_type in new_columns:
+        for col_name, col_type in company_columns:
             try:
                 conn.execute(db.text(f'ALTER TABLE company ADD COLUMN {col_name} {col_type}'))
                 conn.commit()
             except Exception:
-                pass  # column already exists — that's fine
+                pass  # column already exists — fine
+        for col_name, col_type in contact_columns:
+            try:
+                conn.execute(db.text(f'ALTER TABLE contact ADD COLUMN {col_name} {col_type}'))
+                conn.commit()
+            except Exception:
+                pass  # column already exists — fine
     if Tag.query.count() == 0:
         for name, color in [('VIP', '#ef4444'), ('Hot Lead', '#f97316'),
                               ('Partner', '#8b5cf6'), ('Newsletter', '#06b6d4')]:

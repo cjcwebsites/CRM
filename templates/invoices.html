@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Invoices{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Invoices</h1>
+    <span class="text-muted">Billing &amp; payments</span>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-ghost" onclick="generateMonthly()">⚡ Generate Monthly</button>
+    <button class="btn btn-primary" onclick="openModal('new-invoice-modal')">+ New Invoice</button>
+  </div>
+</div>
+
+<!-- Totals -->
+<div class="stats-grid stats-grid--3 mb-4">
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--red">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">${{ "{:,.0f}".format(total_outstanding) }}</div>
+      <div class="stat-label">Outstanding</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--green">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">${{ "{:,.0f}".format(total_paid_month) }}</div>
+      <div class="stat-label">Collected This Month</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon--blue">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="stat-body">
+      <div class="stat-value">{{ invoices|length }}</div>
+      <div class="stat-label">Total Invoices Shown</div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+  <form method="get" class="filter-form">
+    <select name="status" class="input select-sm">
+      <option value="">All Statuses</option>
+      {% for s in ['pending','paid','overdue','cancelled'] %}
+        <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s|title }}</option>
+      {% endfor %}
+    </select>
+    <select name="client_id" class="input select-sm">
+      <option value="">All Clients</option>
+      {% for c in clients %}
+        <option value="{{ c.id }}" {% if client_filter == c.id|string %}selected{% endif %}>
+          {{ c.business_name or c.full_name }}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-secondary">Filter</button>
+    {% if status_filter or client_filter %}
+      <a href="/invoices" class="btn btn-ghost">Clear</a>
+    {% endif %}
+  </form>
+</div>
+
+{% if invoices %}
+<div class="card">
+  <div class="card-body p0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Invoice #</th>
+          <th>Client</th>
+          <th>Description</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Due Date</th>
+          <th>Paid Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr id="inv-row-{{ inv.id }}">
+          <td class="text-sm text-muted fw-medium">{{ inv.invoice_number }}</td>
+          <td>
+            <a href="/contacts/{{ inv.contact_id }}" class="fw-medium">{{ inv.contact.display_name }}</a>
+          </td>
+          <td class="text-sm text-muted">{{ inv.description or '—' }}</td>
+          <td class="fw-medium">${{ "{:,.2f}".format(inv.amount) }}</td>
+          <td><span class="inv-badge inv--{{ inv.status }}" id="inv-status-{{ inv.id }}">{{ inv.status|title }}</span></td>
+          <td class="text-sm {% if inv.status == 'overdue' %}text-danger{% else %}text-muted{% endif %}">
+            {{ inv.due_date.strftime('%b %d, %Y') if inv.due_date else '—' }}
+          </td>
+          <td class="text-sm text-muted">{{ inv.paid_date.strftime('%b %d, %Y') if inv.paid_date else '—' }}</td>
+          <td>
+            <div class="row-actions">
+              {% if inv.status in ['pending','overdue'] %}
+                <button class="btn btn-xs btn-success" onclick="markPaid({{ inv.id }})">✓ Paid</button>
+              {% endif %}
+              {% if inv.status != 'cancelled' and inv.status != 'paid' %}
+                <button class="btn btn-xs btn-danger-ghost" onclick="cancelInvoice({{ inv.id }})">Cancel</button>
+              {% endif %}
+              <button class="btn btn-xs btn-ghost" onclick="deleteInvoice({{ inv.id }})">✕</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="empty-state">
+  <svg viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#f1f5f9"/><rect x="14" y="12" width="20" height="26" rx="2" stroke="#94a3b8" stroke-width="2"/><path d="M18 20h12M18 25h8" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/></svg>
+  <h3>No invoices yet</h3>
+  <p>Create an invoice from the <a href="/clients">Clients</a> page or click + New Invoice.</p>
+  <button class="btn btn-primary" onclick="openModal('new-invoice-modal')">+ New Invoice</button>
+</div>
+{% endif %}
+
+<!-- New Invoice Modal -->
+<div class="modal-overlay" id="new-invoice-modal" onclick="closeModal('new-invoice-modal')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3>New Invoice</h3>
+      <button class="modal-close" onclick="closeModal('new-invoice-modal')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group mb-3">
+        <label>Client *</label>
+        <select id="ni-contact" class="input">
+          <option value="">— Select client —</option>
+          {% for c in clients %}
+            <option value="{{ c.id }}" data-fee="{{ c.monthly_fee or 0 }}">{{ c.business_name or c.full_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mb-3">
+        <label>Amount ($) *</label>
+        <input type="number" id="ni-amount" class="input" min="0" step="0.01" />
+      </div>
+      <div class="form-group mb-3">
+        <label>Description</label>
+        <input type="text" id="ni-description" class="input" placeholder="Monthly Website Fee — Month Year" />
+      </div>
+      <div class="form-group mb-3">
+        <label>Due Date</label>
+        <input type="date" id="ni-due-date" class="input" />
+      </div>
+      <div class="form-group mb-3">
+        <label>Notes</label>
+        <textarea id="ni-notes" class="input" rows="2"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('new-invoice-modal')">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitNewInvoice()">Create Invoice</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Pre-fill amount when client is selected
+document.getElementById('ni-contact')?.addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  document.getElementById('ni-amount').value = opt.dataset.fee || '';
+  const now = new Date();
+  document.getElementById('ni-description').value =
+    `Monthly Website Fee — ${now.toLocaleString('default',{month:'long'})} ${now.getFullYear()}`;
+});
+
+// Pre-fill due date
+(function() {
+  const d = new Date(); d.setDate(d.getDate() + 14);
+  const el = document.getElementById('ni-due-date');
+  if (el) el.value = d.toISOString().slice(0,10);
+})();
+
+async function submitNewInvoice() {
+  const data = {
+    contact_id: parseInt(document.getElementById('ni-contact').value),
+    amount: parseFloat(document.getElementById('ni-amount').value),
+    description: document.getElementById('ni-description').value,
+    due_date: document.getElementById('ni-due-date').value,
+    notes: document.getElementById('ni-notes').value
+  };
+  if (!data.contact_id || !data.amount) { alert('Client and amount are required.'); return; }
+  const res = await fetch('/api/invoices', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (res.ok) location.reload();
+  else alert('Error creating invoice');
+}
+
+async function markPaid(id) {
+  const res = await fetch(`/api/invoices/${id}/mark-paid`, {method:'PATCH'});
+  if (res.ok) {
+    document.getElementById('inv-status-' + id).className = 'inv-badge inv--paid';
+    document.getElementById('inv-status-' + id).textContent = 'Paid';
+    // Remove action buttons
+    const row = document.getElementById('inv-row-' + id);
+    const actions = row?.querySelector('.row-actions');
+    if (actions) actions.innerHTML = '<span class="text-muted text-sm">✓</span>';
+    location.reload();
+  }
+}
+
+async function cancelInvoice(id) {
+  if (!confirm('Cancel this invoice?')) return;
+  const res = await fetch(`/api/invoices/${id}/cancel`, {method:'PATCH'});
+  if (res.ok) location.reload();
+}
+
+async function deleteInvoice(id) {
+  if (!confirm('Delete this invoice permanently?')) return;
+  const res = await fetch(`/api/invoices/${id}`, {method:'DELETE'});
+  if (res.ok) document.getElementById('inv-row-' + id)?.remove();
+}
+
+async function generateMonthly() {
+  if (!confirm('Auto-create invoices for all active clients missing one this month?')) return;
+  const res = await fetch('/api/invoices/generate-monthly', {method:'POST'});
+  const data = await res.json();
+  alert(`Created ${data.created} invoice${data.created !== 1 ? 's' : ''}!`);
+  if (data.created > 0) location.reload();
+}
+</script>
+{% endblock %}

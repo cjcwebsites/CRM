@@ -714,12 +714,206 @@ textarea.input { resize: vertical; }
 .flash-success { background: #dcfce7; color: #166534; }
 .flash-error { background: #fee2e2; color: #991b1b; }
 
+/* ─── Nav section dividers ────────────────────────────────────────────────── */
+.nav-section {
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: rgba(255,255,255,.3);
+  padding: 10px 12px 3px;
+  text-transform: uppercase;
+}
+
+/* ─── Trade badges ────────────────────────────────────────────────────────── */
+.trade-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: .72rem;
+  font-weight: 600;
+  background: #ede9fe;
+  color: #6d28d9;
+  white-space: nowrap;
+}
+
+/* ─── Lead stage badges ───────────────────────────────────────────────────── */
+.stage-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stage--new      { background: #f1f5f9; color: #475569; }
+.stage--voicemail{ background: #fef9c3; color: #854d0e; }
+.stage--interested{ background: #dbeafe; color: #1d4ed8; }
+.stage--proposal { background: #ede9fe; color: #7c3aed; }
+.stage--won      { background: #dcfce7; color: #16a34a; }
+.stage--lost     { background: #fee2e2; color: #dc2626; }
+.stage--dnc      { background: #fce7f3; color: #9d174d; }
+.stage-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.stage-dot--new       { background: #94a3b8; }
+.stage-dot--voicemail { background: #eab308; }
+.stage-dot--interested{ background: #3b82f6; }
+.stage-dot--proposal  { background: #8b5cf6; }
+.stage-dot--won       { background: #22c55e; }
+.stage-dot--lost      { background: #ef4444; }
+.stage-dot--dnc       { background: #ec4899; }
+
+/* ─── Invoice status badges ───────────────────────────────────────────────── */
+.inv-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.inv--pending   { background: #fef9c3; color: #854d0e; }
+.inv--paid      { background: #dcfce7; color: #16a34a; }
+.inv--overdue   { background: #fee2e2; color: #dc2626; }
+.inv--cancelled { background: #f1f5f9; color: #94a3b8; }
+
+/* ─── Website status badges ───────────────────────────────────────────────── */
+.ws-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600; }
+.ws--not_started { background: #f1f5f9; color: #94a3b8; }
+.ws--building    { background: #fef9c3; color: #854d0e; }
+.ws--live        { background: #dcfce7; color: #16a34a; }
+
+/* ─── Phone link ──────────────────────────────────────────────────────────── */
+.phone-link { color: #1e293b; font-size: .875rem; text-decoration: none; }
+.phone-link:hover { color: #6366f1; text-decoration: underline; }
+
+/* ─── Stats grid variants ─────────────────────────────────────────────────── */
+.stats-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.stats-grid--4 { grid-template-columns: repeat(4, 1fr); }
+.stats-grid--5 { grid-template-columns: repeat(5, 1fr); }
+.stat-card--hero {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  border-color: transparent;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.stat-card--hero .stat-label { color: rgba(255,255,255,.75); font-size: .78rem; }
+.stat-card--hero .stat-value--lg { color: #fff; }
+.stat-card--hero .stat-sub { color: rgba(255,255,255,.65); font-size: .78rem; }
+.stat-card--alert { border-color: #fecaca; background: #fff; }
+.stat-value--lg { font-size: 2.2rem; font-weight: 800; line-height: 1; }
+.stat-sub { font-size: .78rem; color: #94a3b8; }
+.stat-icon--red { background: #fee2e2; color: #ef4444; }
+
+/* ─── Utility text colors ─────────────────────────────────────────────────── */
+.text-success { color: #16a34a !important; }
+.text-warning { color: #d97706 !important; }
+.mb-3 { margin-bottom: 12px; }
+.mb-4 { margin-bottom: 20px; }
+
+/* ─── Section labels ──────────────────────────────────────────────────────── */
+.section-label {
+  font-size: .78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #64748b;
+  margin-bottom: 8px;
+  margin-top: 4px;
+}
+.section-label--danger { color: #dc2626; }
+.section-label--warning { color: #d97706; }
+
+/* ─── Urgent row ──────────────────────────────────────────────────────────── */
+.row-urgent td { background: #fff7f7 !important; }
+
+/* ─── Success button ──────────────────────────────────────────────────────── */
+.btn-success { background: #22c55e; color: #fff; border-color: #22c55e; }
+.btn-success:hover { background: #16a34a; border-color: #16a34a; }
+
+/* ─── MRR Banner (clients page) ───────────────────────────────────────────── */
+.mrr-banner {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-radius: 12px;
+  padding: 18px 24px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.mrr-banner-item { display: flex; flex-direction: column; gap: 3px; }
+.mrr-banner-item--alert { border-left: 2px solid rgba(255,255,255,.3); padding-left: 24px; }
+.mrr-banner-label { font-size: .75rem; color: rgba(255,255,255,.7); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+.mrr-banner-value { font-size: 1.7rem; font-weight: 800; color: #fff; line-height: 1.1; }
+.mrr-banner-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ─── Funnel list ─────────────────────────────────────────────────────────── */
+.funnel-list { display: flex; flex-direction: column; gap: 10px; }
+.funnel-row { display: flex; align-items: center; gap: 10px; }
+.funnel-label { display: flex; align-items: center; gap: 7px; font-size: .82rem; color: #475569; min-width: 130px; }
+.funnel-bar-wrap { flex: 1; height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+.funnel-bar { height: 100%; background: #6366f1; border-radius: 999px; transition: width .4s ease; min-width: 2px; }
+.funnel-bar--won { background: #22c55e; }
+.funnel-count { font-size: .82rem; font-weight: 700; color: #1e293b; min-width: 24px; text-align: right; }
+.funnel-divider { border-top: 1px dashed #e2e8f0; margin: 4px 0; }
+
+/* ─── CSS Bar chart ───────────────────────────────────────────────────────── */
+.bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  height: 160px;
+  padding-bottom: 4px;
+}
+.bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+}
+.bar-value { font-size: .7rem; color: #64748b; text-align: center; line-height: 1.2; }
+.bar-outer {
+  flex: 1;
+  width: 100%;
+  background: #f1f5f9;
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.bar-inner { width: 100%; background: linear-gradient(180deg, #818cf8, #6366f1); border-radius: 6px 6px 0 0; min-height: 4px; transition: height .4s ease; }
+.bar-label { font-size: .75rem; font-weight: 600; color: #94a3b8; }
+
+/* ─── Analytics grid ──────────────────────────────────────────────────────── */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 0;
+}
+
+/* ─── Trade breakdown ─────────────────────────────────────────────────────── */
+.trade-breakdown { display: flex; flex-direction: column; gap: 10px; }
+.trade-row { display: flex; align-items: center; gap: 10px; }
+.trade-name { min-width: 140px; }
+.trade-bar-wrap { flex: 1; height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+.trade-bar { height: 100%; background: #a78bfa; border-radius: 999px; min-width: 2px; }
+.trade-count { font-size: .82rem; font-weight: 700; color: #1e293b; min-width: 24px; text-align: right; }
+
 /* ─── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  .dash-grid { grid-template-columns: 1fr; }
+  .dash-grid, .analytics-grid { grid-template-columns: 1fr; }
   .detail-layout { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .col-span-2 { grid-column: span 1; }
+  .stats-grid--3, .stats-grid--4, .stats-grid--5 { grid-template-columns: repeat(2, 1fr); }
+  .mrr-banner { gap: 20px; }
 }
 @media (max-width: 768px) {
   .sidebar { position: fixed; left: -220px; z-index: 300; transition: left .25s; height: 100vh; }
