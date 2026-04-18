@@ -78,6 +78,7 @@
         <input type="text" id="save-last" class="input" placeholder="Last name" />
         <input type="text" id="save-biz" class="input" placeholder="Business name" />
         <input type="tel" id="save-phone" class="input" placeholder="Phone" />
+        <input type="url" id="save-website" class="input" placeholder="Website URL" />
         <select id="save-trade" class="input">
           <option value="">— Trade —</option>
           {% for t in trades %}
@@ -260,6 +261,25 @@ async function runLookup() {
 function showResult(text, prompt) {
   document.getElementById('ai-result-text').textContent = text;
 
+  // Extract structured fields from the formatted response
+  function extractField(label) {
+    const m = text.match(new RegExp(`\\*\\*${label}:\\*\\*\\s*([^\n]+)`));
+    return m ? m[1].replace(/^—$/, '').trim() : '';
+  }
+  const bizName   = extractField('Business Name');
+  const ownerName = extractField('Owner Name');
+  const website   = extractField('Website');
+
+  // Auto-fill save form
+  if (bizName  && bizName  !== '—') document.getElementById('save-biz').value   = bizName;
+  if (website  && website  !== '—' && website !== 'None')
+    document.getElementById('save-website').value = website;
+  if (ownerName && ownerName !== '—') {
+    const parts = ownerName.split(' ');
+    document.getElementById('save-first').value = parts[0] || '';
+    document.getElementById('save-last').value  = parts.slice(1).join(' ') || '';
+  }
+
   // Extract phone numbers and show as chips
   const phoneRe = /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g;
   const phones  = [...new Set(text.match(phoneRe) || [])];
@@ -278,7 +298,6 @@ function showResult(text, prompt) {
       };
       chipsEl.appendChild(chip);
     });
-    // Auto-fill first phone into save form
     if (phones[0]) document.getElementById('save-phone').value = phones[0];
   } else {
     chipsEl.style.display = 'none';
@@ -313,6 +332,7 @@ async function saveLead() {
     last_name:     document.getElementById('save-last').value || '—',
     business_name: document.getElementById('save-biz').value,
     phone:         document.getElementById('save-phone').value,
+    website_url:   document.getElementById('save-website').value,
     trade:         document.getElementById('save-trade').value,
     source:        'AI Lookup',
     lead_stage:    'new',

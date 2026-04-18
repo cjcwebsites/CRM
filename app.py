@@ -292,9 +292,10 @@ def dashboard():
 
 @app.route('/contacts')
 def contacts():
-    q = request.args.get('q', '')
-    stage_filter = request.args.get('stage', '')
-    trade_filter = request.args.get('trade', '')
+    q             = request.args.get('q', '')
+    stage_filter  = request.args.get('stage', '')
+    trade_filter  = request.args.get('trade', '')
+    website_filter = request.args.get('has_website', '')
     query = Contact.query.filter(Contact.lead_stage.notin_(['won']))
     if q:
         query = query.filter(
@@ -310,9 +311,14 @@ def contacts():
         query = query.filter_by(lead_stage=stage_filter)
     if trade_filter:
         query = query.filter_by(trade=trade_filter)
+    if website_filter == '1':
+        query = query.filter(Contact.website_url != None, Contact.website_url != '')
+    elif website_filter == '0':
+        query = query.filter(db.or_(Contact.website_url == None, Contact.website_url == ''))
     contacts = query.order_by(Contact.created_at.desc()).all()
     return render_template('contacts.html', contacts=contacts, q=q,
                            stage_filter=stage_filter, trade_filter=trade_filter,
+                           website_filter=website_filter,
                            trades=TRADES, stage_labels=LEAD_STAGE_LABELS,
                            follow_up_days=FOLLOW_UP_DAYS,
                            now=datetime.utcnow())
@@ -1399,13 +1405,19 @@ def api_ai_lookup():
     ]
 
     system = (
-        "You are a research assistant that finds contractor contact information "
-        "from public records. When given contractor details, use the tools to find "
-        "their phone number, business name, and address. "
+        "You are a research assistant that finds contractor contact information from public records. "
+        "When given contractor details, use the tools to find their info. "
         "Always try lookup_state_license first if a license number and state are present. "
-        "Then use search_web to fill in any missing details. "
-        "Respond with a concise summary: phone number(s), business name, address, "
-        "and source. If nothing is found, say so clearly."
+        "Then use search_web to fill in missing details. "
+        "ALWAYS respond in this exact format (use — if unknown):\n\n"
+        "**Business Name:** <name>\n"
+        "**Owner Name:** <name>\n"
+        "**Phone:** <number>\n"
+        "**Address:** <address>\n"
+        "**Website:** <url or None>\n"
+        "**Source:** <where you found it>\n"
+        "**Notes:** <anything else useful>\n\n"
+        "If nothing is found at all, say 'No results found' and explain what was searched."
     )
 
     messages = [{"role": "user", "content": prompt}]

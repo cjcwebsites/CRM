@@ -31,8 +31,13 @@
         <option value="{{ t }}" {% if trade_filter == t %}selected{% endif %}>{{ t }}</option>
       {% endfor %}
     </select>
+    <select name="has_website" class="input select-sm">
+      <option value="">All (website or not)</option>
+      <option value="1" {% if website_filter == '1' %}selected{% endif %}>🌐 Has a website</option>
+      <option value="0" {% if website_filter == '0' %}selected{% endif %}>❌ No website yet</option>
+    </select>
     <button type="submit" class="btn btn-secondary">Filter</button>
-    {% if q or stage_filter or trade_filter %}
+    {% if q or stage_filter or trade_filter or website_filter %}
       <a href="/contacts" class="btn btn-ghost">Clear</a>
     {% endif %}
   </form>
@@ -48,10 +53,10 @@
           <th>Name / Business</th>
           <th>Trade</th>
           <th>Phone</th>
+          <th>Website</th>
           <th>Stage</th>
           <th>Next Follow-up</th>
           <th>Calls</th>
-          <th>Added</th>
           <th></th>
         </tr>
       </thead>
@@ -74,6 +79,15 @@
             {% if c.phone %}
               <a href="tel:{{ c.phone }}" class="phone-link">{{ c.phone }}</a>
             {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>
+            {% if c.website_url %}
+              <a href="{{ c.website_url }}" target="_blank" rel="noopener" class="website-pill">
+                🌐 Visit
+              </a>
+            {% else %}
+              <span class="no-website-pill">No site</span>
+            {% endif %}
           </td>
           <td>
             <span class="stage-badge stage--{{ c.lead_stage or 'new' }}">

@@ -788,6 +788,20 @@ textarea.input { resize: vertical; }
 .phone-link { color: #1e293b; font-size: .875rem; text-decoration: none; }
 .phone-link:hover { color: #6366f1; text-decoration: underline; }
 
+/* ─── Website pills (leads table) ────────────────────────────────────────── */
+.website-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 600;
+  background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe;
+  text-decoration: none; white-space: nowrap;
+}
+.website-pill:hover { background: #bfdbfe; text-decoration: none; }
+.no-website-pill {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px; font-size: .72rem; font-weight: 600;
+  background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0;
+}
+
 /* ─── Stats grid variants ─────────────────────────────────────────────────── */
 .stats-grid--3 { grid-template-columns: repeat(3, 1fr); }
 .stats-grid--4 { grid-template-columns: repeat(4, 1fr); }
