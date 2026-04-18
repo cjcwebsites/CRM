@@ -1167,5 +1167,335 @@ with app.app_context():
             db.session.add(Tag(name=name, color=color))
         db.session.commit()
 
+# ─── Phone Lookup from Public Records ────────────────────────────────────────
+
+import re as _re
+from bs4 import BeautifulSoup as _BS
+
+_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                  'Chrome/124.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+}
+
+def _normalize_phone(raw):
+    digits = _re.sub(r'\D', '', raw)
+    if len(digits) == 10:
+        return f'({digits[:3]}) {digits[3:6]}-{digits[6:]}'
+    if len(digits) == 11 and digits[0] == '1':
+        return f'({digits[1:4]}) {digits[4:7]}-{digits[7:]}'
+    return None
+
+def _extract_phones(text):
+    found = _re.findall(
+        r'(\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4})', text)
+    seen, out = set(), []
+    for p in found:
+        n = _normalize_phone(p)
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+# ── State-specific license lookup scrapers ────────────────────────────────────
+
+def _lookup_california(license_num):
+    """California CSLB — public contractor license lookup."""
+    import requests as r
+    try:
+        resp = r.get(
+            'https://www2.cslb.ca.gov/OnlineServices/CheckLicenseII/LicenseDetail.aspx',
+            params={'LicNum': license_num}, headers=_HEADERS, timeout=12)
+        soup = _BS(resp.text, 'lxml')
+        phone_el = soup.find(id='ctl00_ContentPlaceHolder1_LicenseDetailList_lblPhoneNum')
+        name_el  = soup.find(id='ctl00_ContentPlaceHolder1_LicenseDetailList_lblLicenseeName')
+        addr_el  = soup.find(id='ctl00_ContentPlaceHolder1_LicenseDetailList_lblAddress')
+        phone = _normalize_phone(phone_el.text.strip()) if phone_el else ''
+        name  = name_el.text.strip() if name_el else ''
+        addr  = addr_el.text.strip() if addr_el else ''
+        if phone:
+            return [{'source': 'California CSLB', 'phone': phone,
+                     'name': name, 'address': addr, 'website': ''}]
+    except Exception:
+        pass
+    return []
+
+def _lookup_florida(license_num):
+    """Florida DBPR — public license lookup."""
+    import requests as r
+    try:
+        resp = r.get(
+            'https://www.myfloridalicense.com/LicenseDetail.asp',
+            params={'SID': '', 'id': license_num},
+            headers=_HEADERS, timeout=12)
+        soup = _BS(resp.text, 'lxml')
+        phones = _extract_phones(soup.get_text())
+        tables = soup.find_all('table')
+        name, addr = '', ''
+        for t in tables:
+            txt = t.get_text()
+            if 'Primary' in txt or 'Business' in txt:
+                rows = t.find_all('tr')
+                for row in rows:
+                    cells = [td.get_text(strip=True) for td in row.find_all('td')]
+                    if len(cells) >= 2:
+                        if 'Name' in cells[0] and not name:
+                            name = cells[1]
+                        if 'Address' in cells[0] and not addr:
+                            addr = cells[1]
+        if phones:
+            return [{'source': 'Florida DBPR', 'phone': phones[0],
+                     'name': name, 'address': addr, 'website': ''}]
+    except Exception:
+        pass
+    return []
+
+def _lookup_texas(license_num):
+    """Texas TDLR — public license lookup."""
+    import requests as r
+    try:
+        resp = r.get(
+            'https://www.tdlr.texas.gov/LicenseSearch/licfile.asp',
+            params={'licnum': license_num},
+            headers=_HEADERS, timeout=12)
+        soup = _BS(resp.text, 'lxml')
+        phones = _extract_phones(soup.get_text())
+        name_el = soup.find('td', string=_re.compile(r'License Name', _re.I))
+        name = ''
+        if name_el and name_el.find_next_sibling('td'):
+            name = name_el.find_next_sibling('td').get_text(strip=True)
+        if phones:
+            return [{'source': 'Texas TDLR', 'phone': phones[0],
+                     'name': name, 'address': '', 'website': ''}]
+    except Exception:
+        pass
+    return []
+
+def _lookup_web_search(name, trade, county, state_name, license_num):
+    """DuckDuckGo HTML search — scrape public listings for phone numbers."""
+    import requests as r
+    query_parts = [p for p in [name, trade, county, state_name,
+                               f'license {license_num}' if license_num else ''] if p]
+    query = ' '.join(query_parts)
+    results = []
+    try:
+        resp = r.post(
+            'https://html.duckduckgo.com/html/',
+            data={'q': query},
+            headers={**_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded'},
+            timeout=12)
+        soup = _BS(resp.text, 'lxml')
+        snippets = soup.select('.result__snippet, .result__body')
+        full_text = ' '.join(s.get_text() for s in snippets[:15])
+        phones = _extract_phones(full_text)
+        for ph in phones[:3]:
+            results.append({'source': 'Web Search', 'phone': ph,
+                            'name': name, 'address': '', 'website': ''})
+    except Exception:
+        pass
+    return results
+
+def _lookup_whitepages_biz(name, county, state_name):
+    """Search Yellowpages for business listing."""
+    import requests as r
+    try:
+        query = f'{name} {county} {state_name}'
+        resp = r.get(
+            'https://www.yellowpages.com/search',
+            params={'search_terms': name, 'geo_location_terms': f'{county}, {state_name}'},
+            headers=_HEADERS, timeout=12)
+        soup = _BS(resp.text, 'lxml')
+        phones = _extract_phones(soup.get_text())
+        links  = soup.select('.business-name')
+        biz_name = links[0].get_text(strip=True) if links else name
+        if phones:
+            return [{'source': 'YellowPages', 'phone': phones[0],
+                     'name': biz_name, 'address': '', 'website': ''}]
+    except Exception:
+        pass
+    return []
+
+
+STATE_SCRAPERS = {
+    'CA': _lookup_california,
+    'CALIFORNIA': _lookup_california,
+    'FL': _lookup_florida,
+    'FLORIDA': _lookup_florida,
+    'TX': _lookup_texas,
+    'TEXAS': _lookup_texas,
+}
+
+
+def _web_search_raw(query):
+    """Return raw DuckDuckGo snippets for Claude to reason over."""
+    import requests as r
+    try:
+        resp = r.post(
+            'https://html.duckduckgo.com/html/',
+            data={'q': query},
+            headers={**_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded'},
+            timeout=12
+        )
+        soup = _BS(resp.text, 'lxml')
+        parts = soup.select('.result__snippet, .result__title, .result__url')
+        return '\n'.join(p.get_text(strip=True) for p in parts[:15]) or 'No results.'
+    except Exception as e:
+        return f'Search error: {e}'
+
+
+@app.route('/find-leads')
+def find_leads():
+    has_key = bool(os.environ.get('ANTHROPIC_API_KEY', '').strip())
+    return render_template('find_leads.html', trades=TRADES, anthropic_key=has_key)
+
+@app.route('/api/ai-lookup', methods=['POST'])
+def api_ai_lookup():
+    """Natural-language contractor lookup powered by Claude + public record scrapers."""
+    prompt  = (request.json or {}).get('prompt', '').strip()
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+
+    if not api_key:
+        return jsonify({'error': 'no_key'})
+    if not prompt:
+        return jsonify({'error': 'Please enter a prompt.'})
+
+    import anthropic as _ant
+
+    tools = [
+        {
+            "name": "search_web",
+            "description": (
+                "Search the public web (DuckDuckGo) for contractor or business info. "
+                "Use this to find phone numbers, business names, addresses, and websites."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string",
+                              "description": "Plain-text search query, e.g. 'John Smith plumbing Dallas TX license 12345'"}
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "lookup_state_license",
+            "description": (
+                "Look up a contractor license on the official state licensing board "
+                "to get the registrant's name, phone number, and address. "
+                "Supported states: CA, FL, TX."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "state":          {"type": "string", "description": "Two-letter state code: CA, FL, or TX"},
+                    "license_number": {"type": "string", "description": "Contractor license number"}
+                },
+                "required": ["state", "license_number"]
+            }
+        },
+    ]
+
+    system = (
+        "You are a research assistant that finds contractor contact information "
+        "from public records. When given contractor details, use the tools to find "
+        "their phone number, business name, and address. "
+        "Always try lookup_state_license first if a license number and state are present. "
+        "Then use search_web to fill in any missing details. "
+        "Respond with a concise summary: phone number(s), business name, address, "
+        "and source. If nothing is found, say so clearly."
+    )
+
+    messages = [{"role": "user", "content": prompt}]
+    client   = _ant.Anthropic(api_key=api_key)
+
+    for _ in range(6):  # max 6 tool-use rounds
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            system=system,
+            tools=tools,
+            messages=messages,
+        )
+
+        if resp.stop_reason == 'end_turn':
+            text = next((b.text for b in resp.content if hasattr(b, 'text')), '')
+            return jsonify({'result': text})
+
+        if resp.stop_reason == 'tool_use':
+            messages.append({"role": "assistant", "content": resp.content})
+            tool_results = []
+            for block in resp.content:
+                if block.type != 'tool_use':
+                    continue
+                if block.name == 'search_web':
+                    output = _web_search_raw(block.input.get('query', ''))
+                elif block.name == 'lookup_state_license':
+                    state_key = block.input.get('state', '').upper()
+                    lic_num   = block.input.get('license_number', '')
+                    scraper   = STATE_SCRAPERS.get(state_key)
+                    if scraper:
+                        rows   = scraper(lic_num)
+                        output = json.dumps(rows) if rows else 'No record found for that license.'
+                    else:
+                        output = (f'State {state_key} not directly supported. '
+                                  'Try search_web with the license number.')
+                else:
+                    output = 'Unknown tool.'
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": str(output),
+                })
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            break
+
+    return jsonify({'result': 'Search complete — no definitive result found.'})
+
+
+@app.route('/api/lookup-phone', methods=['POST'])
+def api_lookup_phone():
+    data        = request.json
+    name        = data.get('name', '').strip()
+    county      = data.get('county', '').strip()
+    state_name  = data.get('state', '').strip()
+    license_num = data.get('license_number', '').strip()
+    trade       = data.get('trade', '').strip()
+
+    if not name:
+        return jsonify({'error': 'Please enter at least a full name.'}), 400
+
+    results = []
+
+    # 1. State-specific license board (if license number + state provided)
+    if license_num and state_name:
+        scraper = STATE_SCRAPERS.get(state_name.upper().strip())
+        if scraper:
+            try:
+                results.extend(scraper(license_num))
+            except Exception:
+                pass
+
+    # 2. YellowPages business lookup
+    if not results and name:
+        results.extend(_lookup_whitepages_biz(name, county, state_name))
+
+    # 3. DuckDuckGo web search fallback
+    if not results:
+        results.extend(_lookup_web_search(name, trade, county, state_name, license_num))
+
+    # Deduplicate by phone
+    seen, deduped = set(), []
+    for r in results:
+        if r['phone'] not in seen:
+            seen.add(r['phone'])
+            deduped.append(r)
+
+    return jsonify({'results': deduped[:5]})
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

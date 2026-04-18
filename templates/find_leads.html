@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Find Leads{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>🤖 AI Lead Lookup</h1>
+    <span class="text-muted">Describe the contractor — AI searches public records &amp; the web for their phone number</span>
+  </div>
+</div>
+
+{% if not anthropic_key %}
+<!-- No API key banner -->
+<div class="setup-banner">
+  <div class="setup-banner-icon">🔑</div>
+  <div class="setup-banner-body">
+    <strong>Anthropic API key required.</strong>
+    This feature uses Claude AI to search public records.
+    <a href="#setup-section" class="setup-link">See setup instructions below ↓</a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Prompt Box -->
+<div class="card ai-card">
+  <div class="card-body">
+    <label class="ai-label">Describe the contractor you're looking for</label>
+    <div class="ai-examples">
+      <span class="ai-example-label">Examples:</span>
+      <button class="example-chip" onclick="setExample(this)">John Smith, plumber, Dallas County TX, license #12345</button>
+      <button class="example-chip" onclick="setExample(this)">Mike Johnson HVAC contractor, Orange County CA, lic 987654</button>
+      <button class="example-chip" onclick="setExample(this)">Sarah Williams electrician, Broward County FL</button>
+    </div>
+    <div class="ai-input-wrap">
+      <textarea id="ai-prompt" class="ai-textarea" rows="3"
+        placeholder="Type anything — name, county, state, license number, trade… the more info the better."
+        {% if not anthropic_key %}disabled{% endif %}
+      ></textarea>
+      <button class="btn btn-primary ai-submit"
+              id="ai-submit-btn"
+              onclick="runLookup()"
+              {% if not anthropic_key %}disabled{% endif %}>
+        <svg viewBox="0 0 20 20" fill="currentColor" width="16"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+        Search
+      </button>
+    </div>
+    <div class="ai-hint">
+      AI will check state contractor license boards (CA, FL, TX), YellowPages, and public web sources.
+    </div>
+  </div>
+</div>
+
+<!-- Loading -->
+<div id="ai-loading" class="ai-loading" style="display:none">
+  <div class="ai-loading-dots"><span></span><span></span><span></span></div>
+  <span id="ai-loading-msg">Searching public records…</span>
+</div>
+
+<!-- Result -->
+<div id="ai-result-wrap" style="display:none">
+  <div class="card ai-result-card">
+    <div class="card-header">
+      <h3>Result</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-xs btn-ghost" onclick="copyResult()">📋 Copy</button>
+        <button class="btn btn-xs btn-ghost" onclick="clearResult()">✕ Clear</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="ai-result-text" class="ai-result-body"></div>
+      <!-- Extracted phone numbers shown as quick-copy chips -->
+      <div id="ai-phone-chips" class="phone-chips-row" style="display:none"></div>
+    </div>
+    <div class="card-body" style="border-top:1px solid #f1f5f9;padding-top:14px">
+      <div style="font-size:.8rem;color:#64748b;margin-bottom:10px">Add this contractor as a lead:</div>
+      <div class="save-form-grid">
+        <input type="text" id="save-first" class="input" placeholder="First name *" />
+        <input type="text" id="save-last" class="input" placeholder="Last name" />
+        <input type="text" id="save-biz" class="input" placeholder="Business name" />
+        <input type="tel" id="save-phone" class="input" placeholder="Phone" />
+        <select id="save-trade" class="input">
+          <option value="">— Trade —</option>
+          {% for t in trades %}
+            <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary" onclick="saveLead()">+ Save as Lead</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- History -->
+<div id="history-wrap" style="display:none" class="mt-4">
+  <div class="section-label">Recent Lookups</div>
+  <div id="history-list" class="history-list"></div>
+</div>
+
+<!-- Setup Instructions -->
+<div id="setup-section" class="card mt-4">
+  <div class="card-header"><h3>🔑 Get an Anthropic API Key (free to start)</h3></div>
+  <div class="card-body">
+    <div class="setup-steps">
+      <div class="setup-step">
+        <div class="step-num">1</div>
+        <div><strong>Go to console.anthropic.com</strong><br/>
+        <span class="text-muted">Sign up for a free account at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>.</span></div>
+      </div>
+      <div class="setup-step">
+        <div class="step-num">2</div>
+        <div><strong>Create an API key</strong><br/>
+        <span class="text-muted">Go to API Keys → Create Key → copy it.</span></div>
+      </div>
+      <div class="setup-step">
+        <div class="step-num">3</div>
+        <div><strong>Add $5 in credits</strong><br/>
+        <span class="text-muted">Each lookup costs about $0.001 (a fraction of a cent). $5 = ~5,000 lookups.</span></div>
+      </div>
+      <div class="setup-step">
+        <div class="step-num">4</div>
+        <div><strong>Set the key, then restart your CRM</strong><br/>
+        <span class="text-muted">Stop the app (Ctrl+C in terminal), then run:</span>
+        <code class="code-block">ANTHROPIC_API_KEY=your_key_here python3 app.py</code>
+        <span class="text-muted">To set it permanently (so you never have to add it again):</span>
+        <code class="code-block">echo 'export ANTHROPIC_API_KEY=your_key_here' >> ~/.zshrc && source ~/.zshrc</code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.ai-card { border: 2px solid #e2e8f0; }
+.ai-label { font-size: .85rem; font-weight: 700; color: #1e293b; display: block; margin-bottom: 10px; }
+.ai-examples { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ai-example-label { font-size: .75rem; color: #94a3b8; font-weight: 600; }
+.example-chip {
+  padding: 3px 10px; border-radius: 999px; font-size: .75rem; font-weight: 500;
+  background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569;
+  cursor: pointer; transition: all .12s;
+}
+.example-chip:hover { background: #ede9fe; border-color: #c4b5fd; color: #6d28d9; }
+.ai-input-wrap { display: flex; gap: 10px; align-items: flex-end; }
+.ai-textarea {
+  flex: 1; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px;
+  font-size: .9rem; resize: none; font: inherit; background: #fff;
+  transition: border-color .15s, box-shadow .15s; line-height: 1.5;
+}
+.ai-textarea:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
+.ai-textarea:disabled { background: #f8fafc; color: #94a3b8; }
+.ai-submit { padding: 10px 20px; align-self: flex-end; }
+.ai-hint { font-size: .75rem; color: #94a3b8; margin-top: 8px; }
+.ai-loading {
+  display: flex; align-items: center; gap: 14px;
+  padding: 28px; justify-content: center; font-size: .9rem; color: #6366f1;
+}
+.ai-loading-dots { display: flex; gap: 5px; }
+.ai-loading-dots span {
+  width: 9px; height: 9px; border-radius: 50%; background: #6366f1;
+  animation: bounce .8s infinite;
+}
+.ai-loading-dots span:nth-child(2) { animation-delay: .15s; }
+.ai-loading-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+.ai-result-card { border-color: #c4b5fd; }
+.ai-result-body {
+  font-size: .9rem; line-height: 1.7; color: #1e293b;
+  white-space: pre-wrap; word-break: break-word;
+}
+.phone-chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.phone-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px; background: #dcfce7;
+  border: 1px solid #bbf7d0; color: #166534; font-weight: 700; font-size: .875rem;
+  cursor: pointer; transition: all .12s;
+}
+.phone-chip:hover { background: #bbf7d0; }
+.save-form-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto;
+  gap: 8px; align-items: center;
+}
+.setup-banner {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: #fefce8; border: 1px solid #fde68a; border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 20px; font-size: .875rem; color: #92400e;
+}
+.setup-banner-icon { font-size: 1.4rem; flex-shrink: 0; }
+.setup-link { color: #92400e; font-weight: 600; text-decoration: underline; }
+.code-block {
+  display: block; background: #1e1b4b; color: #a5b4fc; border-radius: 8px;
+  padding: 10px 14px; font-family: monospace; font-size: .82rem;
+  margin: 8px 0 4px; word-break: break-all;
+}
+.history-list { display: flex; flex-direction: column; gap: 8px; }
+.history-item {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 10px 14px; font-size: .82rem; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; transition: border-color .12s;
+}
+.history-item:hover { border-color: #c4b5fd; }
+.history-prompt { color: #6366f1; font-weight: 600; flex: 1; }
+.history-time { color: #94a3b8; font-size: .75rem; flex-shrink: 0; }
+@media(max-width:900px){ .save-form-grid { grid-template-columns: 1fr 1fr; } }
+</style>
+
+<script>
+const history = JSON.parse(localStorage.getItem('lookup_history') || '[]');
+
+function setExample(el) {
+  document.getElementById('ai-prompt').value = el.textContent.trim();
+  document.getElementById('ai-prompt').focus();
+}
+
+async function runLookup() {
+  const prompt = document.getElementById('ai-prompt').value.trim();
+  if (!prompt) { alert('Please describe the contractor first.'); return; }
+
+  const btn = document.getElementById('ai-submit-btn');
+  btn.disabled = true;
+  document.getElementById('ai-result-wrap').style.display = 'none';
+  document.getElementById('ai-loading').style.display = 'flex';
+
+  const msgs = [
+    'Searching public records…',
+    'Checking state license boards…',
+    'Scanning the web…',
+    'Almost there…'
+  ];
+  let mi = 0;
+  const ticker = setInterval(() => {
+    document.getElementById('ai-loading-msg').textContent = msgs[Math.min(++mi, msgs.length - 1)];
+  }, 2500);
+
+  try {
+    const res  = await fetch('/api/ai-lookup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt})
+    });
+    const data = await res.json();
+    clearInterval(ticker);
+    document.getElementById('ai-loading').style.display = 'none';
+    btn.disabled = false;
+
+    if (data.error === 'no_key') {
+      document.getElementById('setup-section').scrollIntoView({behavior: 'smooth'});
+      return;
+    }
+    if (data.error) { alert(data.error); return; }
+
+    showResult(data.result, prompt);
+  } catch (err) {
+    clearInterval(ticker);
+    document.getElementById('ai-loading').style.display = 'none';
+    btn.disabled = false;
+    alert('Error: ' + err.message);
+  }
+}
+
+function showResult(text, prompt) {
+  document.getElementById('ai-result-text').textContent = text;
+
+  // Extract phone numbers and show as chips
+  const phoneRe = /\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g;
+  const phones  = [...new Set(text.match(phoneRe) || [])];
+  const chipsEl = document.getElementById('ai-phone-chips');
+  chipsEl.innerHTML = '';
+  if (phones.length) {
+    chipsEl.style.display = 'flex';
+    phones.forEach(p => {
+      const chip = document.createElement('div');
+      chip.className = 'phone-chip';
+      chip.innerHTML = `📞 ${p} <span style="font-size:.7rem;opacity:.6">(click to copy)</span>`;
+      chip.onclick = () => {
+        navigator.clipboard.writeText(p);
+        document.getElementById('save-phone').value = p;
+        chip.style.background = '#a7f3d0';
+      };
+      chipsEl.appendChild(chip);
+    });
+    // Auto-fill first phone into save form
+    if (phones[0]) document.getElementById('save-phone').value = phones[0];
+  } else {
+    chipsEl.style.display = 'none';
+  }
+
+  document.getElementById('ai-result-wrap').style.display = 'block';
+
+  // Save to history
+  const ts = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  history.unshift({prompt, result: text, time: ts});
+  if (history.length > 20) history.pop();
+  localStorage.setItem('lookup_history', JSON.stringify(history));
+  renderHistory();
+}
+
+function clearResult() {
+  document.getElementById('ai-result-wrap').style.display = 'none';
+  document.getElementById('ai-prompt').value = '';
+}
+
+function copyResult() {
+  const text = document.getElementById('ai-result-text').textContent;
+  navigator.clipboard.writeText(text);
+  alert('Copied to clipboard!');
+}
+
+async function saveLead() {
+  const firstName = document.getElementById('save-first').value.trim();
+  if (!firstName) { alert('Please enter a first name.'); return; }
+  const data = {
+    first_name:    firstName,
+    last_name:     document.getElementById('save-last').value || '—',
+    business_name: document.getElementById('save-biz').value,
+    phone:         document.getElementById('save-phone').value,
+    trade:         document.getElementById('save-trade').value,
+    source:        'AI Lookup',
+    lead_stage:    'new',
+  };
+  const res = await fetch('/api/contacts', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  if (res.ok) {
+    const c = await res.json();
+    alert(`✓ Saved! View them in Leads.`);
+    window.location = `/contacts/${c.id}`;
+  } else { alert('Error saving lead'); }
+}
+
+function renderHistory() {
+  const wrap = document.getElementById('history-wrap');
+  const list = document.getElementById('history-list');
+  if (!history.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  list.innerHTML = '';
+  history.slice(0, 8).forEach(h => {
+    const el = document.createElement('div');
+    el.className = 'history-item';
+    el.innerHTML = `<span class="history-prompt">${h.prompt}</span><span class="history-time">${h.time}</span>`;
+    el.onclick = () => {
+      document.getElementById('ai-prompt').value = h.prompt;
+      showResult(h.result, h.prompt);
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    };
+    list.appendChild(el);
+  });
+}
+
+// Allow Ctrl+Enter to submit
+document.getElementById('ai-prompt')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runLookup();
+});
+
+renderHistory();
+</script>
+{% endblock %}
